@@ -112,6 +112,3 @@ Authors of UNet, DeepLabV3+, SegFormer
 Made with ❤️ for food segmentation research in Ghana.
 
 
----
-
-Let me know if you’d like this saved into the ZIP or uploaded to GitHub directly.
