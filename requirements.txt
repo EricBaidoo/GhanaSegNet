@@ -1,11 +1,30 @@
-torch
-torchvision
+# Core deep learning libraries
+torch>=1.13.0
+torchvision>=0.14.0
+timm                   # For EfficientNet-lite0 and SegFormer
+
+# Image processing
 opencv-python
-matplotlib
+Pillow
+
+# Data handling and ML
 numpy
-pandas
 scikit-learn
+albumentations         # For data augmentation
+
+# Progress and CLI
 tqdm
-albumentations
-jupyterlab
-efficientnet_pytorch
+
+# Visualization
+matplotlib
+seaborn
+
+# Notebook support
+notebook
+ipykernel
+
+# Optional: If you prefer JupyterLab over classic notebook
+# jupyterlab
+
+# Optional: Advanced optimizers
+# torch-optimizer
