@@ -1,0 +1,42 @@
+# Ignore Python bytecode
+__pycache__/
+*.py[cod]
+
+# Ignore Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore virtual environments
+.env/
+.venv/
+env/
+venv/
+
+# Ignore logs and outputs
+*.log
+*.out
+
+# Ignore model checkpoints and trained weights
+checkpoints/
+*.pth
+
+# Ignore result outputs (predicted masks, visualizations)
+results/
+
+# Ignore the dataset (you should not push this to GitHub)
+data/
+
+# Ignore build and dist folders
+build/
+dist/
+*.egg-info/
+
+# Ignore macOS and Windows junk
+.DS_Store
+Thumbs.db
+
+# VSCode and PyCharm IDE settings
+.vscode/
+.idea/
+
+# Ignore notebook output metadata (optional)
+*.nbconvert.ipynb

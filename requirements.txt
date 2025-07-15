@@ -8,3 +8,4 @@ scikit-learn
 tqdm
 albumentations
 jupyterlab
+efficientnet_pytorch
