@@ -7,16 +7,17 @@
 ## 📁 Project Structure
 
 GhanaSegNet/
-├── models/ # UNet, DeepLabV3+, GhanaSegNet, SegFormer-B0
-├── utils/ # Loss functions and evaluation metrics
-├── scripts/ # Training, evaluation, and testing scripts
-├── datasets/ # Custom PyTorch dataset loader (GhanaFoodDataset)
-├── data/ # Place your FRANI dataset here
-├── checkpoints/ # Saved model weights (.pth files)
-├── results/ # Predicted masks and result images
-├── notebooks/ # Jupyter notebooks for visualizing predictions
-├── README.md # This file
-└── .gitignore # Files/folders ignored by Git
+├── models/              # UNet, DeepLabV3+, GhanaSegNet, SegFormer-B0
+├── utils/               # Loss functions and evaluation metrics
+├── scripts/             # Training, evaluation, and testing scripts
+├── datasets/            # Custom PyTorch dataset loader (GhanaFoodDataset)
+├── data/                # Place your FRANI dataset here (not pushed to GitHub)
+├── checkpoints/         # Saved model weights (.pth files)
+├── results/             # Predicted masks and result images
+├── notebooks/           # Jupyter notebook for visualizing predictions
+├── README.md            # Project documentation
+└── .gitignore           # Git exclusions (data, checkpoints, etc.)
+
 
 
 ---
