@@ -5,7 +5,7 @@ import numpy as np
 import os
 
 from models.ghanasegnet import GhanaSegNet  # Swap with UNet, DeepLabV3Plus, SegFormerB0
-from datasets.dataset_loader import GhanaFoodDataset
+from data.dataset_loader import GhanaFoodDataset
 from utils.metrics import compute_iou, compute_pixel_accuracy, compute_f1_per_class
 
 def evaluate(model, test_loader, device, num_classes=6, save_preds=False):

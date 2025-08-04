@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -7,8 +10,47 @@ import os
 
 from utils.losses import CombinedLoss
 from utils.metrics import compute_iou, compute_pixel_accuracy
-from datasets.dataset_loader import GhanaFoodDataset
-from models.ghanasegnet import GhanaSegNet  # or UNet, DeepLabV3Plus, SegFormerB0
+
+# Custom dataset for segmentation
+from PIL import Image
+from torch.utils.data import Dataset
+
+class SegmentationDataset(Dataset):
+    def __init__(self, images_dir, masks_dir, transform=None):
+        self.images_dir = images_dir
+        self.masks_dir = masks_dir
+        self.transform = transform
+        # Only use .jpg images that have a corresponding mask
+        all_images = [f for f in os.listdir(images_dir) if f.endswith('.jpg')]
+        self.images = []
+        for img_name in sorted(all_images):
+            img_stem = os.path.splitext(img_name)[0]
+            mask_name = img_stem + '_mask.png'
+            mask_path = os.path.join(masks_dir, mask_name)
+            if os.path.exists(mask_path):
+                self.images.append(img_name)
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, idx):
+        img_name = self.images[idx]
+        img_stem = os.path.splitext(img_name)[0]
+        img_path = os.path.join(self.images_dir, img_name)
+        mask_name = img_stem + '_mask.png'
+        mask_path = os.path.join(self.masks_dir, mask_name)
+        image = Image.open(img_path).convert("RGB")
+        mask = Image.open(mask_path)
+        if self.transform:
+            augmented = self.transform(image=image, mask=mask)
+            image = augmented["image"]
+            mask = augmented["mask"]
+        else:
+            import torchvision.transforms as T
+            image = T.ToTensor()(image)
+            mask = T.PILToTensor()(mask).long().squeeze(0)
+        return image, mask
+from models.unet import UNet
 
 def train(model, train_loader, val_loader, criterion, optimizer, scheduler, device, num_epochs=30):
     best_iou = 0.0
@@ -56,15 +98,21 @@ def train(model, train_loader, val_loader, criterion, optimizer, scheduler, devi
 if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    # Dataset
-    train_dataset = GhanaFoodDataset(split='train')
-    val_dataset = GhanaFoodDataset(split='val')
+
+    # Dataset paths
+    train_images = os.path.join(os.path.dirname(__file__), '..', 'data', 'train', 'images')
+    train_masks = os.path.join(os.path.dirname(__file__), '..', 'data', 'train', 'grayscale_masks')
+    val_images = os.path.join(os.path.dirname(__file__), '..', 'data', 'val', 'images')
+    val_masks = os.path.join(os.path.dirname(__file__), '..', 'data', 'val', 'grayscale_masks')
+
+    train_dataset = SegmentationDataset(train_images, train_masks)
+    val_dataset = SegmentationDataset(val_images, val_masks)
 
     train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=4)
     val_loader = DataLoader(val_dataset, batch_size=4, shuffle=False, num_workers=2)
 
     # Model
-    model = GhanaSegNet(num_classes=6).to(device)
+    model = UNet(in_channels=3, num_classes=6, bilinear=True).to(device)
 
     # Loss and optimizer
     criterion = CombinedLoss(alpha=0.8)

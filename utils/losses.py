@@ -24,7 +24,7 @@ class BoundaryLoss(nn.Module):
         self.sobel = nn.Conv2d(1, 1, 3, padding=1, bias=False)
         self.sobel.weight.data = torch.tensor([[[[-1, -2, -1],
                                                  [0,  0,  0],
-                                                 [1,  2,  1]]]])
+                                                 [1,  2,  1]]]], dtype=torch.float32)
         self.sobel.weight.requires_grad = False
 
     def get_edges(self, mask):

@@ -9,7 +9,7 @@ import os
 
 from models.ghanasegnet import GhanaSegNet  # or UNet, DeepLabV3Plus, SegFormerB0
 from utils.metrics import compute_iou
-from datasets.dataset_loader import GhanaFoodDataset  # For color decoding
+from data.dataset_loader import GhanaFoodDataset  # For color decoding
 
 # Color map (same as in notebook)
 CLASS_COLORS = np.array([
