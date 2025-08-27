@@ -40,15 +40,25 @@ class SegmentationDataset(Dataset):
         mask_name = img_stem + '_mask.png'
         mask_path = os.path.join(self.masks_dir, mask_name)
         image = Image.open(img_path).convert("RGB")
-        mask = Image.open(mask_path)
+        mask = Image.open(mask_path).convert("L")
+        import torchvision.transforms as T
+        resize = T.Resize((256, 256), interpolation=T.InterpolationMode.NEAREST)
+        num_classes = 6  # Make sure this matches your model
         if self.transform:
             augmented = self.transform(image=image, mask=mask)
             image = augmented["image"]
             mask = augmented["mask"]
         else:
-            import torchvision.transforms as T
+            image = resize(image)
+            mask = resize(mask)
             image = T.ToTensor()(image)
-            mask = T.PILToTensor()(mask).long().squeeze(0)
+            mask = T.PILToTensor()(mask).long()
+            # Ensure mask is always [H, W]
+            if mask.dim() == 3 and mask.size(0) == 1:
+                mask = mask.squeeze(0)
+            elif mask.dim() == 3:
+                mask = mask.squeeze()
+            mask = mask.clamp(0, num_classes-1)
         return image, mask
 from models.unet import UNet
 
@@ -108,8 +118,8 @@ if __name__ == '__main__':
     train_dataset = SegmentationDataset(train_images, train_masks)
     val_dataset = SegmentationDataset(val_images, val_masks)
 
-    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=4)
-    val_loader = DataLoader(val_dataset, batch_size=4, shuffle=False, num_workers=2)
+    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=4, shuffle=False, num_workers=0)
 
     # Model
     model = UNet(in_channels=3, num_classes=6, bilinear=True).to(device)

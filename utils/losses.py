@@ -10,7 +10,17 @@ class DiceLoss(nn.Module):
 
     def forward(self, inputs, targets):
         inputs = F.softmax(inputs, dim=1)
-        targets = F.one_hot(targets, num_classes=inputs.size(1)).permute(0, 3, 1, 2).float()
+        # Robustly ensure targets shape is [batch, H, W]
+        if targets.dim() > 3:
+            # Always squeeze all singleton dimensions
+            targets = targets.squeeze()
+        if targets.dim() == 2:
+            # If shape is [H, W], add batch dimension
+            targets = targets.unsqueeze(0)
+        if targets.dim() != 3:
+            raise ValueError(f"Unexpected mask shape after squeeze: {targets.shape}")
+        # Now targets should be [batch, H, W]
+        targets = F.one_hot(targets.long(), num_classes=inputs.size(1)).permute(0, 3, 1, 2).float()
 
         intersection = (inputs * targets).sum(dim=(2, 3))
         union = inputs.sum(dim=(2, 3)) + targets.sum(dim=(2, 3))

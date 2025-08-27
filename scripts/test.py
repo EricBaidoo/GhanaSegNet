@@ -67,4 +67,4 @@ if __name__ == "__main__":
 
     # Optionally save
     Image.fromarray(pred_rgb).save("results/test_prediction.png")
-    print("✅ Saved: results/test_prediction.png")
+    print(" Saved: results/test_prediction.png")

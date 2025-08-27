@@ -1,10 +1,14 @@
+import sys
+import os
+# Add project root to Python path for module imports
+sys.path.append(os.path.abspath(os.path.dirname(__file__) + '/..'))
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import numpy as np
 import os
 
-from models.ghanasegnet import GhanaSegNet  # Swap with UNet, DeepLabV3Plus, SegFormerB0
+from models.unet import UNet  # Using UNet for evaluation
 from data.dataset_loader import GhanaFoodDataset
 from utils.metrics import compute_iou, compute_pixel_accuracy, compute_f1_per_class
 
@@ -38,7 +42,7 @@ def evaluate(model, test_loader, device, num_classes=6, save_preds=False):
     labels_cat = torch.cat(all_labels)
     f1_scores = compute_f1_per_class(preds_cat, labels_cat, num_classes)
 
-    print("\n✅ Evaluation Results")
+    print("\n Evaluation Results")
     print(f"Mean IoU: {avg_iou:.4f}")
     print(f"Pixel Accuracy: {avg_acc:.4f}")
     print(f"Per-class F1 Scores: {np.round(f1_scores, 3)}")
@@ -48,7 +52,7 @@ def evaluate(model, test_loader, device, num_classes=6, save_preds=False):
 
 if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = GhanaSegNet(num_classes=6).to(device)
+    model = UNet(num_classes=6).to(device)
     model.load_state_dict(torch.load("checkpoints/best_model.pth", map_location=device))
 
     test_dataset = GhanaFoodDataset(split='test')

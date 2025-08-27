@@ -1,0 +1,39 @@
+[tool.poetry]
+name = "ghanasegnet"
+version = "0.1.0"
+description = "Deep learning models for food image segmentation in Ghana"
+authors = ["EricBaidoo <your.email@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+torch = ">=1.13.0"
+torchvision = ">=0.14.0"
+timm = "*"
+opencv-python = "*"
+Pillow = "*"
+numpy = "*"
+scikit-learn = "*"
+albumentations = "*"
+tqdm = "*"
+matplotlib = "*"
+seaborn = "*"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "*"
+black = "*"
+isort = "*"
+flake8 = "*"
+jupyter = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.isort]
+profile = "black"
+line_length = 88
