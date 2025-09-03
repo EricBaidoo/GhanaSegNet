@@ -31,7 +31,7 @@ def test_environment():
     
     # Test 3: Model imports
     try:
-        from models.unet_original import UNetOriginal
+        from models.unet import UNetOriginal
         from models.deeplabv3plus import DeepLabV3Plus
         print("✅ UNet and DeepLabV3+ imported")
     except Exception as e:

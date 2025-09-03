@@ -19,9 +19,9 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 # Import original baseline models (unmodified for fair comparison)
-from models.unet_original import UNetOriginal
+from models.unet import UNet
 from models.deeplabv3plus import DeepLabV3Plus
-from models.segformer_original import SegFormerOriginal
+from models.segformer import SegFormerB0
 
 # Import utilities
 import sys
@@ -35,9 +35,9 @@ from utils.metrics import compute_iou, compute_pixel_accuracy
 def get_model_and_criterion(model_name, num_classes=6):
     """Initialize model and its ORIGINAL loss function for fair comparison"""
     models = {
-        'unet': lambda: UNetOriginal(n_channels=3, n_classes=num_classes),
+        'unet': lambda: UNet(n_channels=3, n_classes=num_classes),
         'deeplabv3plus': lambda: DeepLabV3Plus(num_classes=num_classes),
-        'segformer': lambda: SegFormerOriginal(num_classes=num_classes)
+        'segformer': lambda: SegFormerB0(num_classes=num_classes)
     }
     
     # Original loss functions from papers
@@ -134,11 +134,18 @@ def train_model(model_name, config):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"🔧 Using device: {device}")
     
-    # Create datasets
+    # Set original input sizes for each model
+    model_input_sizes = {
+        'unet': (572, 572),           # Original UNet paper
+        'deeplabv3plus': (513, 513),  # Original DeepLabV3+ paper
+        'segformer': (512, 512)       # SegFormer paper
+    }
+    input_size = model_input_sizes.get(model_name.lower(), (256, 256))
+
     print("📁 Loading datasets...")
-    train_dataset = GhanaFoodDataset('train')
-    val_dataset = GhanaFoodDataset('val')
-    
+    train_dataset = GhanaFoodDataset('train', target_size=input_size)
+    val_dataset = GhanaFoodDataset('val', target_size=input_size)
+
     train_loader = DataLoader(
         train_dataset, 
         batch_size=config['batch_size'], 
@@ -151,7 +158,7 @@ def train_model(model_name, config):
         shuffle=False, 
         num_workers=2
     )
-    
+
     print(f"📊 Train samples: {len(train_dataset)}, Val samples: {len(val_dataset)}")
     
     # Initialize model with ORIGINAL loss function

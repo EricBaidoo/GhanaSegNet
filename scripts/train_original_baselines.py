@@ -25,9 +25,9 @@ from tqdm import tqdm
 import numpy as np
 
 # Import ORIGINAL baseline models
-from models.unet_original import UNetOriginal
+from models.unet import UNetOriginal
 from models.deeplabv3plus import DeepLabV3Plus
-from models.segformer_original import SegFormerOriginal
+from models.segformer import SegFormerOriginal
 
 # Import utilities
 from data.dataset_loader import GhanaFoodDataset

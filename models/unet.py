@@ -69,13 +69,13 @@ class OutConv(nn.Module):
     def forward(self, x):
         return self.conv(x)
 
-class UNetOriginal(nn.Module):
+class UNet(nn.Module):
     """
     Original UNet (Ronneberger et al., 2015)
     Pure implementation for baseline comparison
     """
     def __init__(self, n_channels=3, n_classes=6, bilinear=False):
-        super(UNetOriginal, self).__init__()
+        super(UNet, self).__init__()
         self.n_channels = n_channels
         self.n_classes = n_classes
         self.bilinear = bilinear
@@ -106,4 +106,4 @@ class UNetOriginal(nn.Module):
         return logits
 
 # Alias for backward compatibility
-UNet = UNetOriginal
+UNet = UNet

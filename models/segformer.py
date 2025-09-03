@@ -8,13 +8,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import SegformerConfig, SegformerForSemanticSegmentation
 
-class SegFormerOriginal(nn.Module):
+class SegFormerB0(nn.Module):
     """
     Original SegFormer-B0 with random initialization
     No pre-trained weights for fair baseline comparison
     """
     def __init__(self, num_classes=6):
-        super(SegFormerOriginal, self).__init__()
+        super(SegFormerB0, self).__init__()
         
         # SegFormer-B0 configuration (from original paper)
         config = SegformerConfig(
@@ -65,4 +65,4 @@ class SegFormerOriginal(nn.Module):
         return outputs.logits
 
 # Alias for consistency
-SegFormer = SegFormerOriginal
+SegFormer = SegFormerB0
