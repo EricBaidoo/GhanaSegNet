@@ -150,13 +150,15 @@ def train_model(model_name, config):
         train_dataset, 
         batch_size=config['batch_size'], 
         shuffle=True, 
-        num_workers=2
+        num_workers=2,
+        drop_last=True  # Drop incomplete batches to avoid BatchNorm errors
     )
     val_loader = DataLoader(
         val_dataset, 
         batch_size=config['batch_size'], 
         shuffle=False, 
-        num_workers=2
+        num_workers=2,
+        drop_last=True  # Drop incomplete batches to avoid BatchNorm errors
     )
 
     print(f"📊 Train samples: {len(train_dataset)}, Val samples: {len(val_dataset)}")
