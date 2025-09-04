@@ -90,9 +90,10 @@ class DeepLabV3Plus(nn.Module):
         x = self.encoder4(x)
 
         x = self.aspp(x)
-        x = F.interpolate(x, scale_factor=4, mode='bilinear', align_corners=False)
-
+        
         low_level_feat = self.low_level_reduce(low_level_feat)
+        # Interpolate to match low_level_feat spatial dimensions
+        x = F.interpolate(x, size=low_level_feat.shape[2:], mode='bilinear', align_corners=False)
         x = torch.cat([x, low_level_feat], dim=1)
 
         x = self.decoder(x)
