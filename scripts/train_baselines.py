@@ -22,6 +22,7 @@ from tqdm import tqdm
 from models.unet import UNet
 from models.deeplabv3plus import DeepLabV3Plus
 from models.segformer import SegFormerB0
+from models.ghanasegnet import GhanaSegNet
 
 # Import utilities
 import sys
@@ -37,14 +38,16 @@ def get_model_and_criterion(model_name, num_classes=6):
     models = {
         'unet': lambda: UNet(n_channels=3, n_classes=num_classes),
         'deeplabv3plus': lambda: DeepLabV3Plus(num_classes=num_classes),
-        'segformer': lambda: SegFormerB0(num_classes=num_classes)
+        'segformer': lambda: SegFormerB0(num_classes=num_classes),
+        'ghanasegnet': lambda: GhanaSegNet(num_classes=num_classes)
     }
     
     # Original loss functions from papers
     original_losses = {
         'unet': nn.CrossEntropyLoss(),  # Ronneberger et al., 2015
         'deeplabv3plus': nn.CrossEntropyLoss(),  # Chen et al., 2018  
-        'segformer': nn.CrossEntropyLoss()  # Xie et al., 2021
+        'segformer': nn.CrossEntropyLoss(),  # Xie et al., 2021
+        'ghanasegnet': nn.CrossEntropyLoss()  # Novel hybrid architecture
     }
     
     paper_refs = {
@@ -261,7 +264,7 @@ def train_model(model_name, config):
 def main():
     parser = argparse.ArgumentParser(description='Train baseline models for GhanaSegNet research')
     parser.add_argument('--model', type=str, required=True, 
-                       choices=['unet', 'deeplabv3plus', 'segformer', 'all'],
+                       choices=['unet', 'deeplabv3plus', 'segformer', 'ghanasegnet', 'all'],
                        help='Model to train')
     parser.add_argument('--epochs', type=int, default=80, help='Number of epochs')
     parser.add_argument('--batch-size', type=int, default=8, help='Batch size')

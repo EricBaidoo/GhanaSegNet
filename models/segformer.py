@@ -62,7 +62,12 @@ class SegFormerB0(nn.Module):
     def forward(self, x):
         # SegFormer expects pixel_values input
         outputs = self.model(pixel_values=x)
-        return outputs.logits
+        
+        # Upsample to match input resolution
+        logits = outputs.logits
+        logits = F.interpolate(logits, size=x.shape[-2:], mode='bilinear', align_corners=False)
+        
+        return logits
 
 # Alias for consistency
 SegFormer = SegFormerB0
