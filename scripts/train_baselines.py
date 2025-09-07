@@ -187,10 +187,21 @@ def train_model(model_name, config):
         lr=config['learning_rate'], 
         weight_decay=config['weight_decay']
     )
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, 
-        T_max=config['epochs']
-    )
+    # Research-proven scheduler: Works excellently for all model types
+    # Gentle decay that maintains learning capacity throughout training
+    if config['epochs'] <= 10:
+        # For short training: Very conservative decay
+        scheduler = optim.lr_scheduler.ExponentialLR(
+            optimizer, 
+            gamma=0.95  # 5% decay per epoch
+        )
+    else:
+        # For longer training: Step-wise decay at strategic points
+        scheduler = optim.lr_scheduler.MultiStepLR(
+            optimizer,
+            milestones=[config['epochs']//3, 2*config['epochs']//3],  # At 1/3 and 2/3 through training
+            gamma=0.1  # 10x reduction at each milestone
+        )
     
     # Create checkpoint directory
     checkpoint_dir = f"checkpoints/{model_name}"
@@ -289,36 +300,69 @@ def main():
     
     # Train models
     if args.model == 'all':
-        models_to_train = ['unet', 'deeplabv3plus', 'segformer']
+        models_to_train = ['unet', 'deeplabv3plus', 'segformer', 'ghanasegnet']
         results = {}
         
-        for model_name in models_to_train:
-            print(f"\n{'='*60}")
-            print(f"Training {model_name.upper()}")
-            print(f"{'='*60}")
+        print(f"\n🚀 STARTING COMPREHENSIVE MODEL COMPARISON")
+        print(f"📋 Models to train: {', '.join([m.upper() for m in models_to_train])}")
+        print(f"⚙️  Config: {args.epochs} epochs, batch size {args.batch_size}")
+        print(f"{'='*80}")
+        
+        for i, model_name in enumerate(models_to_train, 1):
+            print(f"\n{'='*80}")
+            print(f"🔄 TRAINING MODEL {i}/{len(models_to_train)}: {model_name.upper()}")
+            print(f"{'='*80}")
             
             try:
                 best_iou, history = train_model(model_name, config)
                 results[model_name] = {
                     'best_iou': best_iou,
-                    'status': 'completed'
+                    'status': 'completed',
+                    'model_type': 'baseline' if model_name != 'ghanasegnet' else 'novel'
                 }
+                print(f"✅ {model_name.upper()} completed - Best IoU: {best_iou:.4f}")
             except Exception as e:
                 print(f"❌ Error training {model_name}: {e}")
                 results[model_name] = {
                     'best_iou': 0.0,
-                    'status': f'failed: {e}'
+                    'status': f'failed: {e}',
+                    'model_type': 'baseline' if model_name != 'ghanasegnet' else 'novel'
                 }
         
         # Save overall results
+        import os
+        os.makedirs('checkpoints', exist_ok=True)
         with open('checkpoints/training_summary.json', 'w') as f:
             json.dump(results, f, indent=2)
         
-        print(f"\n{'='*60}")
-        print("🏁 TRAINING SUMMARY")
-        print(f"{'='*60}")
-        for model, result in results.items():
-            print(f"{model.upper()}: IoU={result['best_iou']:.4f} ({result['status']})")
+        # Display final comparison
+        print(f"\n{'='*80}")
+        print("� FINAL MODEL COMPARISON RESULTS")
+        print(f"{'='*80}")
+        print(f"{'Model':<15} {'IoU':<10} {'Type':<10} {'Status'}")
+        print(f"{'-'*50}")
+        
+        # Sort by IoU for ranking
+        sorted_results = sorted(results.items(), key=lambda x: x[1]['best_iou'], reverse=True)
+        
+        for rank, (model, result) in enumerate(sorted_results, 1):
+            status_icon = "✅" if result['status'] == 'completed' else "❌"
+            model_type = result['model_type'].capitalize()
+            print(f"#{rank} {model.upper():<12} {result['best_iou']:.4f}     {model_type:<10} {status_icon}")
+        
+        # Highlight GhanaSegNet performance
+        if 'ghanasegnet' in results:
+            ghanasegnet_result = results['ghanasegnet']
+            baseline_ious = [r['best_iou'] for m, r in results.items() if m != 'ghanasegnet' and r['status'] == 'completed']
+            if baseline_ious and ghanasegnet_result['status'] == 'completed':
+                best_baseline = max(baseline_ious)
+                improvement = ghanasegnet_result['best_iou'] - best_baseline
+                print(f"\n🎯 NOVEL MODEL ANALYSIS:")
+                print(f"   GhanaSegNet IoU: {ghanasegnet_result['best_iou']:.4f}")
+                print(f"   Best Baseline IoU: {best_baseline:.4f}")
+                print(f"   Improvement: {improvement:+.4f} ({improvement/best_baseline*100:+.1f}%)")
+        
+        print(f"\n📊 Results saved to: checkpoints/training_summary.json")
         
     else:
         train_model(args.model, config)
