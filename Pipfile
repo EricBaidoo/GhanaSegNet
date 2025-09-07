@@ -9,6 +9,7 @@ torch = "*"
 torchvision = "*"
 torchaudio = "*"
 scikit-learn = "*"
+efficientnet-pytorch = "*"
 
 [dev-packages]
 

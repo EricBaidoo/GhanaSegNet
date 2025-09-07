@@ -47,13 +47,14 @@ def get_model_and_criterion(model_name, num_classes=6):
         'unet': nn.CrossEntropyLoss(),  # Ronneberger et al., 2015
         'deeplabv3plus': nn.CrossEntropyLoss(),  # Chen et al., 2018  
         'segformer': nn.CrossEntropyLoss(),  # Xie et al., 2021
-        'ghanasegnet': nn.CrossEntropyLoss()  # Novel hybrid architecture
+        'ghanasegnet': CombinedLoss()  # Novel food-aware loss function
     }
     
     paper_refs = {
         'unet': 'Ronneberger et al., 2015', 
         'deeplabv3plus': 'Chen et al., 2018', 
-        'segformer': 'Xie et al., 2021'
+        'segformer': 'Xie et al., 2021',
+        'ghanasegnet': 'Baidoo, E. (Novel Architecture)'
     }
     
     if model_name.lower() not in models:
@@ -62,7 +63,9 @@ def get_model_and_criterion(model_name, num_classes=6):
     model = models[model_name.lower()]()
     criterion = original_losses[model_name.lower()]
     
-    print(f"📋 Using ORIGINAL loss for {model_name}: CrossEntropyLoss")
+    print(f"📋 Using ORIGINAL loss for {model_name}: {type(criterion).__name__}")
+    if model_name == 'ghanasegnet':
+        print("🍽️  Food-aware loss: Dice + Focal + Boundary losses combined")
     print(f"📚 Paper reference: {paper_refs[model_name]}")
     
     return model, criterion
