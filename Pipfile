@@ -4,12 +4,21 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-transformers = "*"
-torch = "*"
-torchvision = "*"
-torchaudio = "*"
-scikit-learn = "*"
+torch = ">=1.13.0"
+torchvision = ">=0.14.0"
+timm = "*"
 efficientnet-pytorch = "*"
+transformers = "*"
+opencv-python = "*"
+pillow = "*"
+numpy = "*"
+scikit-learn = "*"
+albumentations = "*"
+tqdm = "*"
+matplotlib = "*"
+seaborn = "*"
+notebook = "*"
+ipykernel = "*"
 
 [dev-packages]
 

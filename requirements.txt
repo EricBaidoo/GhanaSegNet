@@ -2,6 +2,8 @@
 torch>=1.13.0
 torchvision>=0.14.0
 timm                   # For EfficientNet-lite0 and SegFormer
+efficientnet-pytorch   # For EfficientNet-B0 backbone
+transformers           # For transformer components
 
 # Image processing
 opencv-python
