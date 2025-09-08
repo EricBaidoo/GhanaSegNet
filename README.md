@@ -1,6 +1,25 @@
-# GhanaSegNet: A Hybrid Deep Learning Model for Semantic Segmentation of Ghanaian Foods
+# GhanaSegNet: A Novel CNN-Transformer Hybrid for Ghana Food Segmentation
 
-**GhanaSegNet** is a lightweight hybrid deep learning architecture designed to segment traditional Ghanaian meals. It integrates a CNN backbone (EfficientNet-lite0) with a Transformer head, and is optimized for culturally relevant datasets such as **FRANI**. The project also includes baselines like **UNet**, **DeepLabV3+**, and **SegFormer-B0** for comparative evaluation.
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-1.13+-red.svg)](https://pytorch.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+**GhanaSegNet** is a novel deep learning architecture that combines CNN and Transformer approaches for semantic segmentation of traditional Ghanaian foods. This research project introduces a food-aware loss function and provides comprehensive benchmarking against state-of-the-art baseline models.
+
+## 🏆 Key Contributions
+
+- **Novel Architecture**: CNN-Transformer hybrid with EfficientNet-B0 encoder and U-Net decoder
+- **Food-Aware Loss**: Combined Dice + Boundary loss optimized for food segmentation
+- **Comprehensive Benchmarking**: Against UNet, DeepLabV3+, and SegFormer-B0
+- **Reproducible Pipeline**: Complete training and evaluation framework
+
+## 🏗️ Architecture Overview
+
+GhanaSegNet integrates:
+- **Encoder**: EfficientNet-B0 for efficient feature extraction
+- **Bottleneck**: Transformer layers for global attention
+- **Decoder**: U-Net style with skip connections
+- **Loss Function**: 80% Dice Loss + 20% Boundary Loss
 
 ---
 
