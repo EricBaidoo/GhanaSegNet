@@ -47,7 +47,7 @@ def get_model_and_criterion(model_name, num_classes=6):
         'unet': nn.CrossEntropyLoss(),  # Ronneberger et al., 2015
         'deeplabv3plus': nn.CrossEntropyLoss(),  # Chen et al., 2018  
         'segformer': nn.CrossEntropyLoss(),  # Xie et al., 2021
-        'ghanasegnet': CombinedLoss()  # Novel food-aware loss function
+        'ghanasegnet': CombinedLoss(alpha=0.6)  # Optimized: 60% Dice + 40% Boundary for better performance
     }
     
     paper_refs = {
@@ -144,7 +144,8 @@ def train_model(model_name, config):
     model_input_sizes = {
         'unet': (572, 572),           # Original UNet paper
         'deeplabv3plus': (513, 513),  # Original DeepLabV3+ paper
-        'segformer': (512, 512)       # SegFormer paper
+        'segformer': (512, 512),      # SegFormer paper
+        'ghanasegnet': (384, 384)     # Optimized for EfficientNet-B0 backbone + transformers
     }
     input_size = model_input_sizes.get(model_name.lower(), (256, 256))
 
