@@ -32,12 +32,16 @@ class BoundaryLoss(nn.Module):
     def __init__(self):
         super(BoundaryLoss, self).__init__()
         self.sobel = nn.Conv2d(1, 1, 3, padding=1, bias=False)
-        self.sobel.weight.data = torch.tensor([[[[-1, -2, -1],
-                                                 [0,  0,  0],
-                                                 [1,  2,  1]]]], dtype=torch.float32)
+        # Register sobel kernel as a buffer so it moves with the model
+        sobel_kernel = torch.tensor([[[[-1, -2, -1],
+                                       [0,  0,  0],
+                                       [1,  2,  1]]]], dtype=torch.float32)
+        self.register_buffer('sobel_kernel', sobel_kernel)
         self.sobel.weight.requires_grad = False
 
     def get_edges(self, mask):
+        # Ensure sobel weights are on the same device as input
+        self.sobel.weight.data = self.sobel_kernel.to(mask.device)
         edge = torch.abs(self.sobel(mask.unsqueeze(1)))
         return (edge > 0.1).float()
 

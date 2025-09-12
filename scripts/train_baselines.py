@@ -16,6 +16,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm import tqdm
 
 # Import original baseline models (unmodified for fair comparison)
@@ -32,6 +33,35 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from data.dataset_loader import GhanaFoodDataset
 from utils.losses import CombinedLoss
 from utils.metrics import compute_iou, compute_pixel_accuracy
+
+class EarlyStopping:
+    """Early stopping to prevent overfitting - APPLIED TO ALL MODELS FAIRLY"""
+    def __init__(self, patience=7, min_delta=0, restore_best_weights=True):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.restore_best_weights = restore_best_weights
+        self.best_score = None
+        self.counter = 0
+        self.best_weights = None
+        
+    def __call__(self, val_score, model):
+        if self.best_score is None:
+            self.best_score = val_score
+            self.save_checkpoint(model)
+        elif val_score < self.best_score + self.min_delta:
+            self.counter += 1
+            if self.counter >= self.patience:
+                if self.restore_best_weights:
+                    model.load_state_dict(self.best_weights)
+                return True
+        else:
+            self.best_score = val_score
+            self.counter = 0
+            self.save_checkpoint(model)
+        return False
+    
+    def save_checkpoint(self, model):
+        self.best_weights = model.state_dict().copy()
 
 def get_model_and_criterion(model_name, num_classes=6):
     """Initialize model and its ORIGINAL loss function for fair comparison"""
@@ -70,13 +100,13 @@ def get_model_and_criterion(model_name, num_classes=6):
     
     return model, criterion
 
-def train_epoch(model, train_loader, criterion, optimizer, device):
-    """Train for one epoch"""
+def train_epoch(model, train_loader, criterion, optimizer, device, epoch, model_name):
+    """Train for one epoch with enhanced monitoring"""
     model.train()
     total_loss = 0.0
     total_samples = 0
     
-    pbar = tqdm(train_loader, desc="Training")
+    pbar = tqdm(train_loader, desc=f"Epoch {epoch} Training [{model_name}]")
     for images, masks in pbar:
         images, masks = images.to(device), masks.to(device)
         
@@ -84,6 +114,10 @@ def train_epoch(model, train_loader, criterion, optimizer, device):
         outputs = model(images)
         loss = criterion(outputs, masks)
         loss.backward()
+        
+        # FAIR ENHANCEMENT: Gradient clipping applied to ALL models
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        
         optimizer.step()
         
         total_loss += loss.item() * images.size(0)
@@ -93,8 +127,8 @@ def train_epoch(model, train_loader, criterion, optimizer, device):
     
     return total_loss / total_samples
 
-def validate_epoch(model, val_loader, criterion, device, num_classes=6):
-    """Validate for one epoch"""
+def validate_epoch(model, val_loader, criterion, device, epoch, model_name, num_classes=6):
+    """Validate for one epoch with enhanced monitoring"""
     model.eval()
     total_loss = 0.0
     total_iou = 0.0
@@ -102,7 +136,7 @@ def validate_epoch(model, val_loader, criterion, device, num_classes=6):
     total_samples = 0
     
     with torch.no_grad():
-        pbar = tqdm(val_loader, desc="Validation")
+        pbar = tqdm(val_loader, desc=f"Epoch {epoch} Validation [{model_name}]")
         for images, masks in pbar:
             images, masks = images.to(device), masks.to(device)
             
@@ -157,14 +191,14 @@ def train_model(model_name, config):
         train_dataset, 
         batch_size=config['batch_size'], 
         shuffle=True, 
-        num_workers=2,
+        num_workers=2,  # Set to 0 for Windows compatibility
         drop_last=True  # Drop incomplete batches to avoid BatchNorm errors
     )
     val_loader = DataLoader(
         val_dataset, 
         batch_size=config['batch_size'], 
         shuffle=False, 
-        num_workers=2,
+        num_workers=0,  # Set to 0 for Windows compatibility
         drop_last=True  # Drop incomplete batches to avoid BatchNorm errors
     )
 
@@ -188,89 +222,117 @@ def train_model(model_name, config):
         lr=config['learning_rate'], 
         weight_decay=config['weight_decay']
     )
-    # Research-proven scheduler: Works excellently for all model types
-    # Gentle decay that maintains learning capacity throughout training
-    if config['epochs'] <= 10:
-        # For short training: Very conservative decay
-        scheduler = optim.lr_scheduler.ExponentialLR(
-            optimizer, 
-            gamma=0.95  # 5% decay per epoch
-        )
-    else:
-        # For longer training: Step-wise decay at strategic points
-        scheduler = optim.lr_scheduler.MultiStepLR(
-            optimizer,
-            milestones=[config['epochs']//3, 2*config['epochs']//3],  # At 1/3 and 2/3 through training
-            gamma=0.1  # 10x reduction at each milestone
-        )
+    # Enhanced scheduler with ReduceLROnPlateau for better overfitting prevention
+    scheduler = ReduceLROnPlateau(
+        optimizer, 
+        mode='max',  # Monitor IoU (higher is better)
+        factor=0.5, 
+        patience=3,
+        verbose=True,
+        min_lr=1e-6
+    )
+    
+    # Early stopping to prevent overfitting
+    early_stopping = EarlyStopping(patience=5, min_delta=0.001)
     
     # Create checkpoint directory
     checkpoint_dir = f"checkpoints/{model_name}"
     os.makedirs(checkpoint_dir, exist_ok=True)
     
-    # Training loop
+    # Training loop with enhanced early stopping
     best_iou = 0.0
     train_history = []
     
-    print(f"🎯 Starting training for {config['epochs']} epochs...")
+    print(f"🎯 Starting enhanced training for {config['epochs']} epochs (with early stopping)...")
     
     for epoch in range(config['epochs']):
-        print(f"\n📅 Epoch {epoch+1}/{config['epochs']}")
+        print(f"\n📅 Epoch {epoch+1}/{config['epochs']} - {model_name.upper()}")
+        print(f"📈 Current LR: {optimizer.param_groups[0]['lr']:.2e}")
         
         # Train
-        train_loss = train_epoch(model, train_loader, criterion, optimizer, device)
+        train_loss = train_epoch(model, train_loader, criterion, optimizer, device, epoch+1, model_name)
         
-        # Validate
-        val_metrics = validate_epoch(model, val_loader, criterion, device, config['num_classes'])
+        # Validate  
+        val_metrics = validate_epoch(model, val_loader, criterion, device, epoch+1, model_name, config['num_classes'])
         
-        # Update scheduler
-        scheduler.step()
+        # Update scheduler with validation IoU
+        scheduler.step(val_metrics['iou'])
+        
+        # Extract metrics for cleaner logging
+        val_loss = val_metrics['loss']
+        val_iou = val_metrics['iou'] 
+        val_accuracy = val_metrics['accuracy']
         
         # Log metrics
         epoch_data = {
             'epoch': epoch + 1,
             'train_loss': train_loss,
-            'val_loss': val_metrics['loss'],
-            'val_iou': val_metrics['iou'],
-            'val_accuracy': val_metrics['accuracy'],
-            'lr': scheduler.get_last_lr()[0]
+            'val_loss': val_loss,
+            'val_iou': val_iou,
+            'val_accuracy': val_accuracy,
+            'lr': optimizer.param_groups[0]['lr']
         }
         train_history.append(epoch_data)
         
         print(f"📊 Train Loss: {train_loss:.4f}")
-        print(f"📊 Val Loss: {val_metrics['loss']:.4f}")
-        print(f"📊 Val IoU: {val_metrics['iou']:.4f}")
-        print(f"📊 Val Accuracy: {val_metrics['accuracy']:.4f}")
-        print(f"📊 Learning Rate: {scheduler.get_last_lr()[0]:.6f}")
+        print(f"📊 Val Loss: {val_loss:.4f}")
+        print(f"📊 Val IoU: {val_iou:.4f} ({val_iou*100:.2f}%)")
+        print(f"📊 Val Accuracy: {val_accuracy:.4f} ({val_accuracy*100:.2f}%)")
         
-        # Save best model
-        if val_metrics['iou'] > best_iou:
-            best_iou = val_metrics['iou']
+        # Save best model and check early stopping
+        if val_iou > best_iou:
+            best_iou = val_iou
             torch.save({
                 'epoch': epoch + 1,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
                 'best_iou': best_iou,
-                'config': config
-            }, f"{checkpoint_dir}/best_model.pth")
+                'config': config,
+                'model_name': model_name
+            }, f"{checkpoint_dir}/best_{model_name}.pth")
             print(f"💾 New best model saved! IoU: {best_iou:.4f}")
         
-        # Save latest model
+        # Early stopping check
+        if early_stopping(val_iou, model):
+            print(f"🛑 Early stopping triggered at epoch {epoch+1}")
+            print(f"🏆 Best IoU achieved: {best_iou:.4f}")
+            break
+        
+        # Save latest checkpoint
         torch.save({
             'epoch': epoch + 1,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
-            'scheduler_state_dict': scheduler.state_dict(),
             'best_iou': best_iou,
-            'config': config
-        }, f"{checkpoint_dir}/latest_model.pth")
+            'config': config,
+            'model_name': model_name
+        }, f"{checkpoint_dir}/latest_{model_name}.pth")
     
-    # Save training history
-    with open(f"{checkpoint_dir}/training_history.json", 'w') as f:
-        json.dump(train_history, f, indent=2)
+    # Save training history and final results
+    final_results = {
+        'model_name': model_name,
+        'best_iou': float(best_iou),
+        'final_epoch': epoch + 1,
+        'training_history': train_history,
+        'total_parameters': total_params,
+        'trainable_parameters': trainable_params,
+        'timestamp': datetime.now().isoformat(),
+        'config': config
+    }
     
-    print(f"🎉 Training completed!")
+    with open(f"{checkpoint_dir}/{model_name}_results.json", 'w') as f:
+        json.dump(final_results, f, indent=2)
+    
+    print(f"🎉 Training completed for {model_name.upper()}!")
+    print(f"🏆 Best validation IoU: {best_iou:.4f} ({best_iou*100:.2f}%)")
+    print(f"💾 Results saved to: {checkpoint_dir}")
+    
+    return {
+        'best_iou': best_iou,
+        'final_epoch': epoch + 1,
+        'model_name': model_name,
+        'total_params': total_params
+    }
     print(f"🏆 Best IoU: {best_iou:.4f}")
     print(f"💾 Models saved in: {checkpoint_dir}")
     
