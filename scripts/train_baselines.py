@@ -228,7 +228,6 @@ def train_model(model_name, config):
         mode='max',  # Monitor IoU (higher is better)
         factor=0.5, 
         patience=3,
-        verbose=True,
         min_lr=1e-6
     )
     
