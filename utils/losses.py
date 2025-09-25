@@ -46,8 +46,12 @@ class BoundaryLoss(nn.Module):
         return (edge > 0.1).float()
 
     def forward(self, inputs, targets):
-        inputs = torch.argmax(inputs, dim=1)
-        inputs_edge = self.get_edges(inputs.float())
+        # Use softmax probabilities instead of argmax for differentiability
+        inputs_prob = F.softmax(inputs, dim=1)
+        # Get the most probable class as a soft approximation
+        inputs_soft = torch.sum(inputs_prob * torch.arange(inputs.size(1), device=inputs.device).view(1, -1, 1, 1).float(), dim=1)
+        
+        inputs_edge = self.get_edges(inputs_soft)
         targets_edge = self.get_edges(targets.float())
 
         return F.binary_cross_entropy(inputs_edge, targets_edge)

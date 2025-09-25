@@ -26,6 +26,7 @@ from models.unet import UNet
 from models.deeplabv3plus import DeepLabV3Plus
 from models.segformer import SegFormerB0
 from models.ghanasegnet import GhanaSegNet
+from models.ghanasegnet_v2 import GhanaSegNetV2
 
 # Import utilities
 from data.dataset_loader import GhanaFoodDataset
@@ -72,19 +73,22 @@ def get_model_and_criterion(model_name, num_classes=6):
         'unet': lambda: UNet(n_channels=3, n_classes=num_classes),
         'deeplabv3plus': lambda: DeepLabV3Plus(num_classes=num_classes),
         'segformer': lambda: SegFormerB0(num_classes=num_classes),
-        'ghanasegnet': lambda: GhanaSegNet(num_classes=num_classes)
+        'ghanasegnet': lambda: GhanaSegNet(num_classes=num_classes),
+        'ghanasegnet_v2': lambda: GhanaSegNetV2(num_classes=num_classes)
     }
     original_losses = {
         'unet': nn.CrossEntropyLoss(),
         'deeplabv3plus': nn.CrossEntropyLoss(),
         'segformer': nn.CrossEntropyLoss(),
-        'ghanasegnet': CombinedLoss(alpha=0.6)
+        'ghanasegnet': CombinedLoss(alpha=0.6),
+        'ghanasegnet_v2': CombinedLoss(alpha=0.7)
     }
     paper_refs = {
         'unet': 'Ronneberger et al., 2015', 
         'deeplabv3plus': 'Chen et al., 2018', 
         'segformer': 'Xie et al., 2021',
-        'ghanasegnet': 'Baidoo, E. (Novel Architecture)'
+        'ghanasegnet': 'Baidoo, E. (Novel Architecture)',
+        'ghanasegnet_v2': 'Baidoo, E. (Cultural Intelligence Enhanced)'
     }
     if model_name.lower() not in models:
         raise ValueError(f"Model {model_name} not supported. Choose from: {list(models.keys())}")

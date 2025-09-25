@@ -150,13 +150,13 @@ class GhanaSegNetV2(nn.Module):
             self.encoder._bn0, 
             self.encoder._swish
         )  # 32 channels
-        self.enc1 = self.encoder._blocks[0:2]   # 16 channels
-        self.enc2 = self.encoder._blocks[2:4]   # 24 channels  
-        self.enc3 = self.encoder._blocks[4:10]  # 48 channels
-        self.enc4 = self.encoder._blocks[10:]   # 120 channels
+        self.enc1 = nn.Sequential(*self.encoder._blocks[0:2])   # 16 channels
+        self.enc2 = nn.Sequential(*self.encoder._blocks[2:4])   # 24 channels  
+        self.enc3 = nn.Sequential(*self.encoder._blocks[4:10])  # 48 channels
+        self.enc4 = nn.Sequential(*self.encoder._blocks[10:])   # 120 channels
         
         # Enhanced feature processing
-        self.multi_scale_fusion = MultiScaleFeatureFusion(1408, 512)  # EfficientNet-B2 final: 1408
+        self.multi_scale_fusion = MultiScaleFeatureFusion(352, 512)  # enc4 output: 352 channels
         self.conv_reduce = nn.Conv2d(512, 256, kernel_size=1)
         
         # Cultural context transformer
@@ -167,18 +167,18 @@ class GhanaSegNetV2(nn.Module):
             dropout=dropout
         )
         
-        # Enhanced decoder with cultural attention
-        self.up4 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
-        self.dec4 = EnhancedDecoderBlock(128 + 120, 128)  # Skip from enc4
+        # Enhanced decoder with cultural attention (updated channel counts and scales)
+        self.up4 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)  # 8x8 -> 16x16
+        self.dec4 = EnhancedDecoderBlock(128 + 88, 128)   # Skip from enc3 (88 channels) - 16x16
         
-        self.up3 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
-        self.dec3 = EnhancedDecoderBlock(64 + 48, 64)     # Skip from enc3
+        self.up3 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=4)   # 16x16 -> 64x64
+        self.dec3 = EnhancedDecoderBlock(64 + 24, 64)     # Skip from enc2 (24 channels) - 64x64
         
-        self.up2 = nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2)
-        self.dec2 = EnhancedDecoderBlock(32 + 24, 32)     # Skip from enc2
+        self.up2 = nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2)    # 64x64 -> 128x128
+        self.dec2 = EnhancedDecoderBlock(32 + 16, 32)     # Skip from enc1 (16 channels) - 128x128
         
-        self.up1 = nn.ConvTranspose2d(32, 16, kernel_size=2, stride=2)
-        self.dec1 = EnhancedDecoderBlock(16 + 16, 16)     # Skip from enc1
+        self.up1 = nn.ConvTranspose2d(32, 16, kernel_size=2, stride=2)    # 128x128 -> 256x256
+        self.dec1 = EnhancedDecoderBlock(16, 16)          # No skip connection for final layer
         
         # Final classification with dropout for regularization
         self.final_conv = nn.Sequential(
@@ -213,18 +213,18 @@ class GhanaSegNetV2(nn.Module):
         x4_reduced = self.conv_reduce(x4_enhanced)
         x4_context = self.transformer(x4_reduced)
         
-        # Decoder path with enhanced blocks
-        d4 = self.up4(x4_context)
-        d4 = self.dec4(torch.cat([d4, x3], dim=1))
+        # Decoder path with enhanced blocks (properly aligned skip connections)
+        d4 = self.up4(x4_context)                        # 8x8 -> 16x16
+        d4 = self.dec4(torch.cat([d4, x3], dim=1))        # cat with x3 (88 ch, 16x16)
         
-        d3 = self.up3(d4)
-        d3 = self.dec3(torch.cat([d3, x2], dim=1))
+        d3 = self.up3(d4)                                 # 16x16 -> 64x64
+        d3 = self.dec3(torch.cat([d3, x2], dim=1))        # cat with x2 (24 ch, 64x64)
         
-        d2 = self.up2(d3)
-        d2 = self.dec2(torch.cat([d2, x1], dim=1))
+        d2 = self.up2(d3)                                 # 64x64 -> 128x128
+        d2 = self.dec2(torch.cat([d2, x1], dim=1))        # cat with x1 (16 ch, 128x128)
         
-        d1 = self.up1(d2)
-        d1 = self.dec1(torch.cat([d1, x0], dim=1))
+        d1 = self.up1(d2)                                 # 128x128 -> 256x256
+        d1 = self.dec1(d1)                                # No skip connection for final layer
         
         # Final prediction
         out = self.final_conv(d1)

@@ -142,6 +142,7 @@ class GhanaSegNet(nn.Module):
     def forward(self, x):
         """
         Forward pass implementing EfficientNet encoder + Transformer + simple decoder
+        For now, keep the original simple approach until we can properly implement skip connections
         """
         # Extract features using EfficientNet encoder
         features = self.encoder.extract_features(x)  # [B, 1280, H/32, W/32]
@@ -150,7 +151,7 @@ class GhanaSegNet(nn.Module):
         features = self.conv1(features)              # Channel reduction [B, 256, H/32, W/32]
         features = self.transformer(features)        # Global attention
         
-        # Simple decoder path
+        # Simple decoder path (skip connections to be implemented properly later)
         d1 = self.up1(features)                      # [B, 128, H/16, W/16]
         d1 = self.dec1(d1)                           # [B, 64, H/16, W/16]
         
@@ -170,9 +171,7 @@ class GhanaSegNet(nn.Module):
         """
         return {
             'encoder_backbone': list(self.encoder.parameters()),
-            'decoder_head': list(self.up4.parameters()) + list(self.dec4.parameters()) + 
-                           list(self.up3.parameters()) + list(self.dec3.parameters()) +
-                           list(self.up2.parameters()) + list(self.dec2.parameters()) +
+            'decoder_head': list(self.up2.parameters()) + list(self.dec2.parameters()) +
                            list(self.up1.parameters()) + list(self.dec1.parameters()) +
                            list(self.final.parameters()),
             'transformer': list(self.transformer.parameters()),
