@@ -125,16 +125,16 @@ def set_seed(seed, benchmark_mode=True):
         # For benchmarking: ensure deterministic behavior for reproducibility
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
-        print(f"🎯 BENCHMARK MODE: Deterministic operations enabled (seed={seed})")
-        print("   ✅ Results will be reproducible across runs")
-        print("   ⚠️  Training may be slower due to deterministic operations")
+        print(f"BENCHMARK MODE: Deterministic operations enabled (seed={seed})")
+        print("   Results will be reproducible across runs")
+        print("   Training may be slower due to deterministic operations")
     else:
         # For fast training: allow non-deterministic but faster operations
         torch.backends.cudnn.deterministic = False
         torch.backends.cudnn.benchmark = True
-        print(f"⚡ FAST MODE: Non-deterministic operations enabled (seed={seed})")
-        print("   ⚡ Training will be faster")
-        print("   ⚠️  Results may vary slightly between runs")
+        print(f"FAST MODE: Non-deterministic operations enabled (seed={seed})")
+        print("   Training will be faster")
+        print("   Results may vary slightly between runs")
 
 def train_epoch(model, train_loader, criterion, optimizer, device, epoch, model_name):
     """
@@ -218,9 +218,9 @@ def train_model(model_name, config):
     set_seed(seed, benchmark_mode)
     
     if config.get('custom_seed'):
-        print(f"🔬 CUSTOM SEED: Using seed {seed} for {model_name.upper()}")
+        print(f"CUSTOM SEED: Using seed {seed} for {model_name.upper()}")
     else:
-        print(f"🔬 BENCHMARKING: Using seed {seed} for {model_name.upper()}")
+        print(f"BENCHMARKING: Using seed {seed} for {model_name.upper()}")
         print("   - Ensures reproducible results for this model")
         print("   - Different from other models for fair comparison")
         if benchmark_mode:
@@ -412,22 +412,21 @@ def main():
     
     # Print benchmarking info
     if benchmark_mode:
-        print("🎯 BENCHMARK MODE ENABLED")
-        print("   ✅ Deterministic operations for reproducible results")
-        print("   ✅ Model-specific seeds for fair comparison")
-        print("   ⚠️  Training may be slower but results are reproducible")
+        print("BENCHMARK MODE ENABLED")
+        print("   Deterministic operations for reproducible results")
+        print("   Model-specific seeds for fair comparison")
+        print("   Training may be slower but results are reproducible")
     else:
-        print("⚡ FAST MODE ENABLED") 
-        print("   ⚡ Non-deterministic operations for faster training")
-        print("   ⚠️  Results may vary slightly between runs")
+        print("FAST MODE ENABLED") 
+        print("   Non-deterministic operations for faster training")
+        print("   Results may vary slightly between runs")
     print()
 
     if args.model == 'all':
         models_to_train = ['unet', 'deeplabv3plus', 'segformer', 'ghanasegnet', 'ghanasegnet_v2']
         results = {}
-        print(f"\n🚀 STARTING COMPREHENSIVE MODEL COMPARISON")
+        print(f"\nSTARTING COMPREHENSIVE MODEL COMPARISON")
         print(f"Models to train: {', '.join([m.upper() for m in models_to_train])}")
-        print(f"Config: {args.epochs} epochs, batch size {args.batch_size}")
         print(f"{'='*80}")
         for i, model_name in enumerate(models_to_train, 1):
             print(f"\n{'='*80}")
