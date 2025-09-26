@@ -20,6 +20,8 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm import tqdm
+import random
+import numpy as np
 
 # Import baseline models
 from models.unet import UNet
@@ -100,6 +102,40 @@ def get_model_and_criterion(model_name, num_classes=6):
     print(f"Paper reference: {paper_refs[model_name]}")
     return model, criterion
 
+def set_seed(seed, benchmark_mode=True):
+    """
+    Set random seed for reproducible benchmarking
+    
+    For research benchmarking, we need:
+    1. Reproducible results within the same model
+    2. Fair comparison across different models 
+    3. Different random initialization per model (avoid identical weights)
+    
+    Args:
+        seed: Random seed to use
+        benchmark_mode: If True, enables deterministic operations for reproducible benchmarking
+    """
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    
+    if benchmark_mode:
+        # For benchmarking: ensure deterministic behavior for reproducibility
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        print(f"🎯 BENCHMARK MODE: Deterministic operations enabled (seed={seed})")
+        print("   ✅ Results will be reproducible across runs")
+        print("   ⚠️  Training may be slower due to deterministic operations")
+    else:
+        # For fast training: allow non-deterministic but faster operations
+        torch.backends.cudnn.deterministic = False
+        torch.backends.cudnn.benchmark = True
+        print(f"⚡ FAST MODE: Non-deterministic operations enabled (seed={seed})")
+        print("   ⚡ Training will be faster")
+        print("   ⚠️  Results may vary slightly between runs")
+
 def train_epoch(model, train_loader, criterion, optimizer, device, epoch, model_name):
     """
     Train for one epoch. Applies gradient clipping for stability.
@@ -161,6 +197,37 @@ def train_model(model_name, config):
     """
     print(f"Starting training for {model_name.upper()}")
     print(f"Config: {json.dumps(config, indent=2)}")
+    
+    # BENCHMARKING SETUP: Model-specific seeds for fair comparison
+    # Each model gets a different seed to ensure:
+    # 1. Different random weight initialization 
+    # 2. Different data shuffling patterns
+    # 3. Reproducible results within each model
+    # 4. Fair comparison across models
+    model_seeds = {
+        'unet': 42,           # Standard baseline seed
+        'deeplabv3plus': 123, # Different seed for fair comparison  
+        'segformer': 456,     # Transformer-based model
+        'ghanasegnet': 789,   # Our novel architecture
+        'ghanasegnet_v2': 999 # Enhanced version
+    }
+    
+    # Use custom seed if provided, otherwise use model-specific seed
+    seed = config.get('custom_seed') or model_seeds.get(model_name.lower(), 42)
+    benchmark_mode = config.get('benchmark_mode', True)
+    set_seed(seed, benchmark_mode)
+    
+    if config.get('custom_seed'):
+        print(f"🔬 CUSTOM SEED: Using seed {seed} for {model_name.upper()}")
+    else:
+        print(f"🔬 BENCHMARKING: Using seed {seed} for {model_name.upper()}")
+        print("   - Ensures reproducible results for this model")
+        print("   - Different from other models for fair comparison")
+        if benchmark_mode:
+            print("   - Deterministic training for research validity")
+        else:
+            print("   - Fast mode enabled (non-deterministic operations)")
+    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
 
@@ -314,28 +381,51 @@ def main():
     """
     parser = argparse.ArgumentParser(description='Train baseline models for GhanaSegNet research')
     parser.add_argument('--model', type=str, required=True, 
-                       choices=['unet', 'deeplabv3plus', 'segformer', 'ghanasegnet', 'all'],
+                       choices=['unet', 'deeplabv3plus', 'segformer', 'ghanasegnet', 'ghanasegnet_v2', 'all'],
                        help='Model to train')
     parser.add_argument('--epochs', type=int, default=80, help='Number of epochs')
     parser.add_argument('--batch-size', type=int, default=8, help='Batch size')
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
     parser.add_argument('--num-classes', type=int, default=6, help='Number of classes')
+    parser.add_argument('--seed', type=int, default=None, 
+                       help='Override default model-specific seeds (for debugging only)')
+    parser.add_argument('--benchmark-mode', action='store_true', default=True,
+                       help='Enable deterministic operations for benchmarking (default: True)')
+    parser.add_argument('--fast-mode', action='store_true', 
+                       help='Disable deterministic ops for faster training (not recommended for benchmarking)')
     args = parser.parse_args()
 
+    # Handle benchmarking mode
+    benchmark_mode = args.benchmark_mode and not args.fast_mode
+    
     config = {
         'epochs': args.epochs,
         'batch_size': args.batch_size,
         'learning_rate': args.lr,
         'weight_decay': 1e-4,
         'num_classes': args.num_classes,
+        'custom_seed': args.seed,
+        'benchmark_mode': benchmark_mode,
         'timestamp': datetime.now().isoformat(),
         'note': 'Using ORIGINAL loss functions for fair baseline comparison'
     }
+    
+    # Print benchmarking info
+    if benchmark_mode:
+        print("🎯 BENCHMARK MODE ENABLED")
+        print("   ✅ Deterministic operations for reproducible results")
+        print("   ✅ Model-specific seeds for fair comparison")
+        print("   ⚠️  Training may be slower but results are reproducible")
+    else:
+        print("⚡ FAST MODE ENABLED") 
+        print("   ⚡ Non-deterministic operations for faster training")
+        print("   ⚠️  Results may vary slightly between runs")
+    print()
 
     if args.model == 'all':
-        models_to_train = ['unet', 'deeplabv3plus', 'segformer', 'ghanasegnet']
+        models_to_train = ['unet', 'deeplabv3plus', 'segformer', 'ghanasegnet', 'ghanasegnet_v2']
         results = {}
-        print(f"\nSTARTING COMPREHENSIVE MODEL COMPARISON")
+        print(f"\n🚀 STARTING COMPREHENSIVE MODEL COMPARISON")
         print(f"Models to train: {', '.join([m.upper() for m in models_to_train])}")
         print(f"Config: {args.epochs} epochs, batch size {args.batch_size}")
         print(f"{'='*80}")
@@ -348,7 +438,7 @@ def main():
                 results[model_name] = {
                     'best_iou': result['best_iou'],
                     'status': 'completed',
-                    'model_type': 'baseline' if model_name != 'ghanasegnet' else 'novel'
+                    'model_type': 'baseline' if model_name not in ['ghanasegnet', 'ghanasegnet_v2'] else 'novel'
                 }
                 print(f"{model_name.upper()} completed - Best IoU: {result['best_iou']:.4f}")
             except Exception as e:
@@ -356,7 +446,7 @@ def main():
                 results[model_name] = {
                     'best_iou': 0.0,
                     'status': f'failed: {e}',
-                    'model_type': 'baseline' if model_name != 'ghanasegnet' else 'novel'
+                    'model_type': 'baseline' if model_name not in ['ghanasegnet', 'ghanasegnet_v2'] else 'novel'
                 }
         os.makedirs('checkpoints', exist_ok=True)
         with open('checkpoints/training_summary.json', 'w') as f:
