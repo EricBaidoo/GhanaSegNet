@@ -283,7 +283,7 @@ def train_model(model_name, config):
         patience=3,
         min_lr=1e-6
     )
-    early_stopping = EarlyStopping(patience=5, min_delta=0.001)
+    early_stopping = EarlyStopping(patience=20, min_delta=0.0001)
 
     # Checkpoint directory
     checkpoint_dir = f"checkpoints/{model_name}"
