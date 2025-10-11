@@ -1,14 +1,23 @@
 """
-GhanaSegNet: Novel Hybrid CNN-Transformer Architecture
+GhanaSegNet: Enhanced Hybrid CNN-Transformer Architecture
 for Semantic Segmentation of Traditional Ghanaian Foods
 
 Key Innovations:
-- EfficientNet-lite0 backbone with ImageNet pretraining
-- Novel transformer integration for global context
-- Culturally-aware architectural design
-- Direct transfer learning (ImageNet → Ghana Food)
+- EfficientNet-B0 backbone with ImageNet pretraining
+- Enhanced transformer with 8 attention heads (vs 4)
+- ASPP module for multi-scale feature extraction
+- Enhanced spatial attention with channel attention
+- Improved decoder with progressive feature fusion
+- Optimized for fair benchmarking against DeepLabV3+
+
+Architectural Enhancements for Benchmarking:
+- Multi-scale context via ASPP (like DeepLabV3+)
+- Deeper transformer with better gradient flow
+- Enhanced attention mechanisms
+- Progressive decoder improvements
 
 Author: EricBaidoo
+Date: Enhanced October 11, 2025
 """
 
 import torch
@@ -18,230 +27,329 @@ from efficientnet_pytorch import EfficientNet
 
 class TransformerBlock(nn.Module):
     """
-    Transformer block for global context understanding
-    Integrates at bottleneck for efficiency (Xie et al., 2021)
+    Enhanced Transformer block for global context understanding
+    Improvements: 8 heads (vs 4), deeper MLP, better normalization, gradient scaling
     """
-    def __init__(self, dim, heads=4, mlp_dim=256, dropout=0.1):
+    def __init__(self, dim, heads=8, mlp_dim=512, dropout=0.15):
         super(TransformerBlock, self).__init__()
         self.norm1 = nn.LayerNorm(dim)
         self.attn = nn.MultiheadAttention(
             embed_dim=dim, 
-            num_heads=heads, 
+            num_heads=heads,  # Enhanced from 4 to 8 heads
             dropout=dropout,
             batch_first=True
         )
         self.norm2 = nn.LayerNorm(dim)
+        
+        # Enhanced MLP with deeper architecture
         self.mlp = nn.Sequential(
             nn.Linear(dim, mlp_dim),
-            nn.GELU(),  # Better gradients than ReLU
+            nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(mlp_dim, dim),
+            nn.Linear(mlp_dim, mlp_dim // 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(mlp_dim // 2, dim),
             nn.Dropout(dropout)
         )
+        
+        # Learnable scaling factors for better gradient flow
+        self.scale_attn = nn.Parameter(torch.ones(1) * 0.1)
+        self.scale_mlp = nn.Parameter(torch.ones(1) * 0.1)
 
     def forward(self, x):
         B, C, H, W = x.shape
         x = x.flatten(2).transpose(1, 2)  # (B, HW, C)
         
-        # Self-attention with residual
+        # Enhanced self-attention with scaling
         x_norm = self.norm1(x)
         attn_out, _ = self.attn(x_norm, x_norm, x_norm)
-        x = x + attn_out
+        x = x + self.scale_attn * attn_out
         
-        # MLP with residual
-        x = x + self.mlp(self.norm2(x))
+        # Enhanced MLP with scaling
+        x_norm = self.norm2(x)
+        mlp_out = self.mlp(x_norm)
+        x = x + self.scale_mlp * mlp_out
         
         # Reshape back to feature map
         x = x.transpose(1, 2).view(B, C, H, W)
         return x
 
 class SpatialAttention(nn.Module):
-    """Lightweight spatial attention module"""
+    """Enhanced spatial attention with channel attention integration"""
     def __init__(self, in_channels):
         super(SpatialAttention, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, in_channels // 8, 1)
-        self.conv2 = nn.Conv2d(in_channels // 8, 1, 1)
-        self.sigmoid = nn.Sigmoid()
+        
+        # Spatial attention branch
+        self.spatial_conv = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels // 8, 1),
+            nn.BatchNorm2d(in_channels // 8),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels // 8, 1, 1),
+            nn.Sigmoid()
+        )
+        
+        # Enhanced channel attention branch
+        self.channel_attention = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(in_channels, in_channels // 8, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels // 8, in_channels, 1),
+            nn.Sigmoid()
+        )
+        
+        # Feature fusion
+        self.fusion = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels, 1),
+            nn.BatchNorm2d(in_channels),
+            nn.ReLU(inplace=True)
+        )
         
     def forward(self, x):
-        attn = self.conv1(x)
-        attn = F.relu(attn)
-        attn = self.conv2(attn)
-        attn = self.sigmoid(attn)
-        return x * attn
+        # Channel attention
+        ca = self.channel_attention(x)
+        x_ca = x * ca
+        
+        # Spatial attention
+        sa = self.spatial_conv(x_ca)
+        x_sa = x_ca * sa
+        
+        # Feature fusion
+        output = self.fusion(x_sa)
+        return output
 
-class DecoderBlock(nn.Module):
+class ASPPModule(nn.Module):
     """
-    Enhanced decoder block with skip connections and spatial attention
+    Enhanced Atrous Spatial Pyramid Pooling for multi-scale feature extraction
+    Similar to DeepLabV3+ but integrated into GhanaSegNet architecture
     """
-    def __init__(self, in_channels, skip_channels, out_channels, use_attention=True):
-        super(DecoderBlock, self).__init__()
-        total_in_channels = in_channels + skip_channels
+    def __init__(self, in_channels, out_channels, rates=[6, 12, 18]):
+        super(ASPPModule, self).__init__()
         
-        self.conv1 = nn.Conv2d(total_in_channels, out_channels, 3, padding=1)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, 3, padding=1)
-        self.bn2 = nn.BatchNorm2d(out_channels)
+        # Multiple dilation rates for multi-scale context
+        self.aspp_blocks = nn.ModuleList()
+        dilations = [1] + rates  # Include 1x1 conv
         
-        # Add spatial attention
-        self.attention = SpatialAttention(out_channels) if use_attention else None
+        for dilation in dilations:
+            if dilation == 1:
+                # 1x1 convolution
+                block = nn.Sequential(
+                    nn.Conv2d(in_channels, out_channels, 1, bias=False),
+                    nn.BatchNorm2d(out_channels),
+                    nn.ReLU(inplace=True)
+                )
+            else:
+                # Dilated convolution
+                block = nn.Sequential(
+                    nn.Conv2d(in_channels, out_channels, 3, padding=dilation, dilation=dilation, bias=False),
+                    nn.BatchNorm2d(out_channels),
+                    nn.ReLU(inplace=True)
+                )
+            self.aspp_blocks.append(block)
         
-        # Add residual connection if dimensions match
-        self.residual = nn.Conv2d(total_in_channels, out_channels, 1) if total_in_channels != out_channels else None
+        # Global average pooling branch
+        self.global_avg_pool = nn.Sequential(
+            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Conv2d(in_channels, out_channels, 1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+        
+        # Final projection
+        total_channels = out_channels * (len(dilations) + 1)  # +1 for global pooling
+        self.project = nn.Sequential(
+            nn.Conv2d(total_channels, out_channels, 1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.1)
+        )
+    
+    def forward(self, x):
+        B, C, H, W = x.shape
+        
+        # Apply ASPP blocks
+        aspp_features = []
+        for aspp_block in self.aspp_blocks:
+            aspp_features.append(aspp_block(x))
+        
+        # Global average pooling
+        global_feat = self.global_avg_pool(x)
+        global_feat = F.interpolate(global_feat, size=(H, W), mode='bilinear', align_corners=False)
+        aspp_features.append(global_feat)
+        
+        # Concatenate and project
+        concat_feat = torch.cat(aspp_features, dim=1)
+        output = self.project(concat_feat)
+        
+        return output
 
-    def forward(self, x, skip=None):
-        identity = x
+class EnhancedDecoderBlock(nn.Module):
+    """
+    Enhanced decoder block with improved feature fusion and attention
+    """
+    def __init__(self, in_channels, skip_channels, out_channels):
+        super(EnhancedDecoderBlock, self).__init__()
         
-        if skip is not None:
-            if x.shape[2:] != skip.shape[2:]:
-                skip = F.interpolate(skip, size=x.shape[2:], mode='bilinear', align_corners=False)
-            x = torch.cat([x, skip], dim=1)
+        # Skip connection processing
+        self.skip_conv = nn.Sequential(
+            nn.Conv2d(skip_channels, out_channels, 1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
         
-        # Store for residual
-        if self.residual is not None:
-            identity = self.residual(x)
+        # Main path processing
+        self.main_conv = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, 1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
         
-        # Main path
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = self.bn2(self.conv2(out))
+        # Feature fusion
+        self.fusion = nn.Sequential(
+            nn.Conv2d(out_channels * 2, out_channels, 3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, 3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
         
-        # Apply attention
-        if self.attention is not None:
-            out = self.attention(out)
+        # Enhanced attention
+        self.attention = SpatialAttention(out_channels)
+    
+    def forward(self, x, skip):
+        # Upsample main path to match skip connection size
+        x = F.interpolate(x, size=skip.shape[2:], mode='bilinear', align_corners=False)
+        x = self.main_conv(x)
         
-        # Add residual connection
-        if self.residual is not None:
-            out = out + identity
+        # Process skip connection
+        skip = self.skip_conv(skip)
         
-        return F.relu(out)
+        # Fuse features
+        fused = torch.cat([x, skip], dim=1)
+        fused = self.fusion(fused)
+        
+        # Apply enhanced attention
+        output = self.attention(fused)
+        
+        return output
 
 class GhanaSegNet(nn.Module):
     """
-    GhanaSegNet: Advanced Multi-Scale Transfer Learning Framework
+    GhanaSegNet Enhanced: Advanced Multi-Scale Transfer Learning Framework
     
-    Architecture Components:
-    1. EfficientNet-B0 encoder (ImageNet pretrained backbone)
-    2. Transformer integration at bottleneck (global context)
-    3. U-Net decoder with skip connections (feature fusion)
-    4. Direct transfer learning (ImageNet → Ghana Food)
+    Enhanced Architecture Components:
+    1. EfficientNet-B0 encoder with ImageNet pretraining
+    2. ASPP module for multi-scale feature extraction (like DeepLabV3+)
+    3. Enhanced transformer with 8 attention heads (vs 4 original)
+    4. Enhanced spatial+channel attention mechanisms
+    5. Improved decoder with progressive feature fusion
+    6. Optimized for fair benchmarking performance
     
-    Design Philosophy:
-    - Efficient design: Balanced accuracy-speed trade-off
-    - Culturally-aware: Designed for traditional food presentation
-    - Transfer learning: Direct domain adaptation from ImageNet
-    - Novel architecture: CNN-Transformer hybrid for food segmentation
+    Key Enhancements for Benchmarking:
+    - Multi-scale context via ASPP competing with DeepLabV3+
+    - Deeper transformer with better gradient flow and scaling
+    - Enhanced attention combining spatial and channel mechanisms
+    - Progressive decoder with better skip connection fusion
+    - Optimized regularization and normalization
     """
-    def __init__(self, num_classes=6, dropout=0.1):
+    def __init__(self, num_classes=6, dropout=0.15):
         super(GhanaSegNet, self).__init__()
         
         # EfficientNet-B0 backbone (ImageNet pretrained)
-        # Note: Using B0 instead of lite0 due to library availability
         self.encoder = EfficientNet.from_pretrained('efficientnet-b0')
         
-        # Channel reduction for transformer efficiency (EfficientNet-B0 outputs 1280 features)
-        self.conv1 = nn.Conv2d(1280, 256, kernel_size=1)
+        # Channel reduction for transformer efficiency
+        self.conv_reduce = nn.Conv2d(1280, 256, kernel_size=1)
         
-        # Transformer block at bottleneck for global context
+        # Enhanced ASPP module for multi-scale features (DeepLabV3+ style)
+        self.aspp = ASPPModule(256, 256)
+        
+        # Enhanced transformer block with 8 attention heads
         self.transformer = TransformerBlock(
             dim=256, 
-            heads=4,  # Balanced attention heads
-            mlp_dim=256,  # Conservative MLP size for mobile
+            heads=8,  # Enhanced from 4 to 8 heads for better performance
+            mlp_dim=512,  # Deeper MLP for better feature learning
             dropout=dropout
         )
         
-        # Skip connection channel adapters for EfficientNet-B0 features
-        # Based on actual EfficientNet-B0 structure: [24@H/4, 112@H/16, 320@H/32]
-        self.skip_conv1 = nn.Conv2d(320, 64, kernel_size=1)   # From block 15: 320 -> 64 channels
-        self.skip_conv2 = nn.Conv2d(112, 32, kernel_size=1)   # From block 10: 112 -> 32 channels
-        self.skip_conv3 = nn.Conv2d(24, 16, kernel_size=1)    # From block 2: 24 -> 16 channels
+        # Enhanced decoder blocks with correct EfficientNet-B0 channels
+        # EfficientNet-B0 feature channels: 16, 24, 40, 112, 320
+        self.dec4 = EnhancedDecoderBlock(256, 320, 256)  # Bottleneck -> Dec4 (block 15: 320 channels)
+        self.dec3 = EnhancedDecoderBlock(256, 112, 128)  # Dec4 -> Dec3 (block 10: 112 channels) 
+        self.dec2 = EnhancedDecoderBlock(128, 40, 64)    # Dec3 -> Dec2 (block 4: 40 channels)
+        self.dec1 = EnhancedDecoderBlock(64, 24, 32)     # Dec2 -> Dec1 (block 2: 24 channels)
         
-        # Enhanced decoder with skip connections, attention, and residuals
-        # Decoder path 1: 256 -> 128 + skip from block 15 (64 channels) = 192 total input
-        self.up1 = nn.ConvTranspose2d(256, 128, kernel_size=2, stride=2)
-        self.dec1 = DecoderBlock(in_channels=128, skip_channels=64, out_channels=128, use_attention=True)
-        
-        # Decoder path 2: 128 -> 64 + skip from block 10 (32 channels) = 96 total input  
-        self.up2 = nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2)
-        self.dec2 = DecoderBlock(in_channels=64, skip_channels=32, out_channels=64, use_attention=True)
-        
-        # Decoder path 3: 64 -> 32 + skip from block 2 (16 channels) = 48 total input
-        self.up3 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=4)  # 4x upsampling H/16->H/4  
-        self.dec3 = DecoderBlock(in_channels=32, skip_channels=16, out_channels=32, use_attention=True)
-        
-
-        
-        # Final classification layer with dropout
-        self.final = nn.Sequential(
-            nn.Dropout2d(dropout),
-            nn.Conv2d(32, num_classes, kernel_size=1)
+        # Final classification head
+        self.final_conv = nn.Sequential(
+            nn.Conv2d(32, 32, 3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Conv2d(32, num_classes, 1)
         )
         
-        # Initialize weights for better convergence
+        # Initialize enhanced components
         self._initialize_weights()
-        
+    
     def _initialize_weights(self):
-        """Initialize non-pretrained weights"""
+        """Initialize weights for enhanced components"""
         for m in self.modules():
-            if isinstance(m, nn.Conv2d) and not hasattr(m, '_is_pretrained'):
+            if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
-                
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+        
     def forward(self, x):
         """
-        Forward pass with proper skip connections from EfficientNet encoder
-        Extracts multi-scale features for U-Net style decoder
+        Enhanced forward pass with ASPP, improved transformer, and progressive decoder
         """
-        # Extract intermediate features from EfficientNet encoder
-        skip_features = []
+        # Store input size for final upsampling
+        input_size = x.shape[2:]
         
-        # Start with proper EfficientNet preprocessing
-        x_enc = self.encoder._swish(self.encoder._bn0(self.encoder._conv_stem(x)))
+        # Extract multi-scale features from EfficientNet encoder
+        features = []
+        x_enc = self.encoder._conv_stem(x)
+        x_enc = self.encoder._bn0(x_enc)
+        x_enc = self.encoder._swish(x_enc)
+        features.append(x_enc)  # 16 channels
         
-        # Forward through encoder blocks while collecting skip connections
-        for i, block in enumerate(self.encoder._blocks):
+        # Forward through encoder blocks and extract skip features
+        for idx, block in enumerate(self.encoder._blocks):
             x_enc = block(x_enc)
-            # Collect features after specific blocks for skip connections
-            if i == 2:    # After block 2: H/4, W/4, 24 channels
-                skip_features.append(x_enc)
-            elif i == 10:  # After block 10: H/16, W/16, 112 channels
-                skip_features.append(x_enc)
-            elif i == 15:  # After block 15: H/32, W/32, 320 channels  
-                skip_features.append(x_enc)
+            if idx in [2, 4, 10, 15]:  # Extract at key stages for skip connections
+                features.append(x_enc)
         
-        # Final encoder features (bottleneck)
-        features = self.encoder._conv_head(x_enc)    # [B, 1280, H/32, W/32]
-        features = self.encoder._bn1(features)
-        features = self.encoder._swish(features)
+        # Final encoder processing
+        x_enc = self.encoder._conv_head(x_enc)
+        x_enc = self.encoder._bn1(x_enc)
+        x_enc = self.encoder._swish(x_enc)
         
-        # Bottleneck processing with global context
-        features = self.conv1(features)              # Channel reduction [B, 256, H/32, W/32]
-        features = self.transformer(features)        # Global attention
+        # Bottleneck processing with enhancements
+        x_bottleneck = self.conv_reduce(x_enc)      # Channel reduction to 256
+        x_bottleneck = self.aspp(x_bottleneck)      # Multi-scale features (ASPP)
+        x_bottleneck = self.transformer(x_bottleneck)  # Enhanced transformer (8 heads)
         
-        # Enhanced decoder with skip connections, attention, and residuals
-        # Stage 1: Upsample and fuse with skip from block 15 (320 channels)
-        d1 = self.up1(features)                      # [B, 128, H/16, W/16]
-        skip1 = self.skip_conv1(skip_features[2])    # Adapt channels [B, 64, H/32, W/32]
-        d1 = self.dec1(d1, skip1)                    # Fuse and decode with attention [B, 128, H/16, W/16]
+        # Enhanced progressive decoder
+        x = self.dec4(x_bottleneck, features[4])    # features[4]: 112 channels
+        x = self.dec3(x, features[3])               # features[3]: 40 channels
+        x = self.dec2(x, features[2])               # features[2]: 24 channels
+        x = self.dec1(x, features[1])               # features[1]: 16 channels
         
-        # Stage 2: Upsample and fuse with skip from block 10 (112 channels)
-        d2 = self.up2(d1)                            # [B, 64, H/8, W/8]
-        skip2 = self.skip_conv2(skip_features[1])    # Adapt channels [B, 32, H/16, W/16]
-        d2 = self.dec2(d2, skip2)                    # Fuse and decode with attention [B, 64, H/8, W/8]
+        # Final classification
+        x = self.final_conv(x)
         
-        # Stage 3: Upsample and fuse with skip from block 2 (24 channels)
-        d3 = self.up3(d2)                            # [B, 32, H/4, W/4]
-        skip3 = self.skip_conv3(skip_features[0])    # Adapt channels [B, 16, H/4, W/4]
-        d3 = self.dec3(d3, skip3)                    # Fuse and decode with attention [B, 32, H/4, W/4]
+        # Upsample to input resolution
+        x = F.interpolate(x, size=input_size, mode='bilinear', align_corners=False)
         
-        # Final classification at H/4 resolution, then upsample to input size
-        out = self.final(d3)                         # [B, num_classes, H/4, W/4]
-        out = F.interpolate(out, size=x.shape[2:], mode='bilinear', align_corners=False)
-        
-        return out
+        return x
     
     def get_transfer_learning_parameters(self):
         """
