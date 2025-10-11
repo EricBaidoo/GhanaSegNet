@@ -58,13 +58,67 @@ class BoundaryLoss(nn.Module):
 
 
 class CombinedLoss(nn.Module):
-    def __init__(self, alpha=0.8):
+    """
+    Enhanced Combined Loss for 30% mIoU target with multi-scale supervision
+    """
+    def __init__(self, alpha=0.7, aux_weight=0.4):
         super(CombinedLoss, self).__init__()
         self.alpha = alpha
+        self.aux_weight = aux_weight  # Weight for auxiliary losses
+        
+        # Enhanced loss components
         self.dice = DiceLoss()
         self.boundary = BoundaryLoss()
+        self.ce_loss = nn.CrossEntropyLoss()
+        
+        # Class-balanced weights for food segmentation (background, banku, rice, fufu, kenkey, other)
+        class_weights = torch.tensor([0.5, 2.0, 1.5, 2.5, 1.8, 1.2])
+        self.balanced_ce = nn.CrossEntropyLoss(weight=class_weights)
+        
+        # Focal loss for hard examples
+        self.focal_alpha = 0.25
+        self.focal_gamma = 2.0
 
-    def forward(self, inputs, targets):
+    def focal_loss(self, inputs, targets):
+        """Focal loss for handling class imbalance"""
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none')
+        pt = torch.exp(-ce_loss)
+        focal_loss = self.focal_alpha * (1-pt)**self.focal_gamma * ce_loss
+        return focal_loss.mean()
+
+    def forward(self, inputs, targets, aux_outputs=None):
+        # Handle different input formats
+        if isinstance(inputs, tuple):
+            inputs, aux_outputs = inputs[0], inputs[1] if len(inputs) > 1 else None
+        
+        # Main loss computation - enhanced for 30% mIoU target
         dice_loss = self.dice(inputs, targets)
         boundary_loss = self.boundary(inputs, targets)
-        return self.alpha * dice_loss + (1 - self.alpha) * boundary_loss
+        ce_loss = self.ce_loss(inputs, targets)
+        focal_loss = self.focal_loss(inputs, targets)
+        
+        # Move class weights to same device as inputs
+        if hasattr(self.balanced_ce, 'weight') and self.balanced_ce.weight is not None:
+            self.balanced_ce.weight = self.balanced_ce.weight.to(inputs.device)
+        balanced_ce_loss = self.balanced_ce(inputs, targets)
+        
+        # Enhanced main loss combining multiple components for better segmentation
+        main_loss = (self.alpha * (dice_loss + focal_loss * 0.5 + balanced_ce_loss * 0.3) + 
+                    (1 - self.alpha) * boundary_loss + 
+                    ce_loss * 0.1)  # Small CE loss for stability
+        
+        # Multi-scale auxiliary supervision for 30% mIoU target
+        aux_loss = 0.0
+        if aux_outputs is not None and len(aux_outputs) > 0:
+            for aux_out in aux_outputs:
+                aux_dice = self.dice(aux_out, targets)
+                aux_ce = self.ce_loss(aux_out, targets)
+                aux_focal = self.focal_loss(aux_out, targets)
+                aux_loss += (aux_dice + aux_ce * 0.5 + aux_focal * 0.3)
+            
+            aux_loss = aux_loss / len(aux_outputs)  # Average auxiliary losses
+            total_loss = main_loss + self.aux_weight * aux_loss
+        else:
+            total_loss = main_loss
+        
+        return total_loss

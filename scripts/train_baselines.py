@@ -80,7 +80,7 @@ def get_model_and_criterion(model_name, num_classes=6):
         'unet': nn.CrossEntropyLoss(),
         'deeplabv3plus': nn.CrossEntropyLoss(),
         'segformer': nn.CrossEntropyLoss(),
-        'ghanasegnet': CombinedLoss(alpha=0.6)
+        'ghanasegnet': CombinedLoss(alpha=0.7, aux_weight=0.4)  # Enhanced for 30% mIoU target
     }
     paper_refs = {
         'unet': 'Ronneberger et al., 2015', 
@@ -94,7 +94,7 @@ def get_model_and_criterion(model_name, num_classes=6):
     criterion = original_losses[model_name.lower()]
     print(f"Using ORIGINAL loss for {model_name}: {type(criterion).__name__}")
     if model_name == 'ghanasegnet':
-        print("Food-aware loss: Dice + Focal + Boundary losses combined")
+        print("Enhanced 30% mIoU loss: Multi-scale supervision + Dice + Focal + Boundary + Class-balanced")
     print(f"Paper reference: {paper_refs[model_name]}")
     return model, criterion
 
@@ -144,7 +144,16 @@ def train_epoch(model, train_loader, criterion, optimizer, device, epoch, model_
         images, masks = images.to(device), masks.to(device)
         optimizer.zero_grad()
         outputs = model(images)
-        loss = criterion(outputs, masks)
+        
+        # Handle auxiliary outputs for enhanced GhanaSegNet
+        if model_name == 'ghanasegnet' and isinstance(outputs, tuple):
+            main_outputs, aux_outputs = outputs
+            loss = criterion(main_outputs, masks, aux_outputs)
+        else:
+            if isinstance(outputs, tuple):
+                outputs = outputs[0]  # Take main output if tuple returned
+            loss = criterion(outputs, masks)
+        
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
@@ -167,8 +176,17 @@ def validate_epoch(model, val_loader, criterion, device, epoch, model_name, num_
         for images, masks in pbar:
             images, masks = images.to(device), masks.to(device)
             outputs = model(images)
-            loss = criterion(outputs, masks)
-            preds = torch.argmax(outputs, dim=1)
+            
+            # Handle auxiliary outputs for enhanced GhanaSegNet validation
+            if model_name == 'ghanasegnet' and isinstance(outputs, tuple):
+                main_outputs, aux_outputs = outputs
+                loss = criterion(main_outputs, masks, aux_outputs)
+                preds = torch.argmax(main_outputs, dim=1)
+            else:
+                if isinstance(outputs, tuple):
+                    outputs = outputs[0]  # Take main output if tuple returned
+                loss = criterion(outputs, masks)
+                preds = torch.argmax(outputs, dim=1)
             iou = compute_iou(preds, masks, num_classes)
             acc = compute_pixel_accuracy(preds, masks)
             total_loss += loss.item() * images.size(0)
