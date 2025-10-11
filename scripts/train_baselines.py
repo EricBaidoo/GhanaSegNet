@@ -28,7 +28,6 @@ from models.unet import UNet
 from models.deeplabv3plus import DeepLabV3Plus
 from models.segformer import SegFormerB0
 from models.ghanasegnet import GhanaSegNet
-from models.ghanasegnet_v2 import GhanaSegNetV2
 
 # Import utilities
 from data.dataset_loader import GhanaFoodDataset
@@ -75,22 +74,19 @@ def get_model_and_criterion(model_name, num_classes=6):
         'unet': lambda: UNet(n_channels=3, n_classes=num_classes),
         'deeplabv3plus': lambda: DeepLabV3Plus(num_classes=num_classes),
         'segformer': lambda: SegFormerB0(num_classes=num_classes),
-        'ghanasegnet': lambda: GhanaSegNet(num_classes=num_classes),
-        'ghanasegnet_v2': lambda: GhanaSegNetV2(num_classes=num_classes)
+        'ghanasegnet': lambda: GhanaSegNet(num_classes=num_classes)
     }
     original_losses = {
         'unet': nn.CrossEntropyLoss(),
         'deeplabv3plus': nn.CrossEntropyLoss(),
         'segformer': nn.CrossEntropyLoss(),
-        'ghanasegnet': CombinedLoss(alpha=0.6),
-        'ghanasegnet_v2': CombinedLoss(alpha=0.7)
+        'ghanasegnet': CombinedLoss(alpha=0.6)
     }
     paper_refs = {
         'unet': 'Ronneberger et al., 2015', 
         'deeplabv3plus': 'Chen et al., 2018', 
         'segformer': 'Xie et al., 2021',
-        'ghanasegnet': 'Baidoo, E. (Novel Architecture)',
-        'ghanasegnet_v2': 'Baidoo, E. (Cultural Intelligence Enhanced)'
+        'ghanasegnet': 'Baidoo, E. (Enhanced Architecture - ASPP + 8-Head Transformer)'
     }
     if model_name.lower() not in models:
         raise ValueError(f"Model {model_name} not supported. Choose from: {list(models.keys())}")
@@ -208,8 +204,7 @@ def train_model(model_name, config):
         'unet': 42,           # Standard baseline seed
         'deeplabv3plus': 123, # Different seed for fair comparison  
         'segformer': 456,     # Transformer-based model
-        'ghanasegnet': 789,   # Our novel architecture
-        'ghanasegnet_v2': 999 # Enhanced version
+        'ghanasegnet': 789    # Our novel enhanced architecture
     }
     
     # Use custom seed if provided, otherwise use model-specific seed
@@ -270,20 +265,39 @@ def train_model(model_name, config):
     print(f"Total parameters: {total_params:,}")
     print(f"Trainable parameters: {trainable_params:,}")
 
-    # Optimizer and scheduler
+    # Optimizer and scheduler (Enhanced for better convergence)
     optimizer = optim.AdamW(
         model.parameters(), 
         lr=config['learning_rate'], 
-        weight_decay=config['weight_decay']
+        weight_decay=config['weight_decay'],
+        betas=(0.9, 0.999),  # Slightly adjusted for transformer components
+        eps=1e-8
     )
-    scheduler = ReduceLROnPlateau(
-        optimizer, 
-        mode='max',
-        factor=0.5, 
-        patience=3,
-        min_lr=1e-6
-    )
-    early_stopping = EarlyStopping(patience=20, min_delta=0.0001)
+    
+    # Enhanced learning rate scheduling for better convergence
+    if config['epochs'] <= 20:  # For short training runs
+        scheduler = ReduceLROnPlateau(
+            optimizer, 
+            mode='max',
+            factor=0.7,  # Less aggressive for short training
+            patience=5,  # More patience for short runs
+            min_lr=1e-6,
+            threshold=0.001
+        )
+    else:  # For longer training runs
+        scheduler = ReduceLROnPlateau(
+            optimizer, 
+            mode='max',
+            factor=0.5, 
+            patience=3,
+            min_lr=1e-6,
+            threshold=0.0001
+        )
+    # Adaptive early stopping based on training length
+    if config['epochs'] <= 20:  # For short training runs
+        early_stopping = EarlyStopping(patience=10, min_delta=0.0005)  # More lenient for quick training
+    else:  # For longer training runs
+        early_stopping = EarlyStopping(patience=20, min_delta=0.0001)
 
     # Checkpoint directory
     checkpoint_dir = f"checkpoints/{model_name}"
@@ -293,13 +307,29 @@ def train_model(model_name, config):
     train_history = []
 
     print(f"Starting enhanced training for {config['epochs']} epochs (with early stopping)...")
+    
+    # Warmup for transformer-based models (GhanaSegNet benefits from this)
+    warmup_epochs = min(3, config['epochs'] // 4) if model_name == 'ghanasegnet' else 0
+    base_lr = config['learning_rate']
+    
     for epoch in range(config['epochs']):
         print(f"\nEpoch {epoch+1}/{config['epochs']} - {model_name.upper()}")
-        print(f"Current LR: {optimizer.param_groups[0]['lr']:.2e}")
+        
+        # Apply warmup for transformer-based models
+        if warmup_epochs > 0 and epoch < warmup_epochs:
+            warmup_lr = base_lr * (epoch + 1) / warmup_epochs
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = warmup_lr
+            print(f"Warmup LR: {warmup_lr:.2e} (epoch {epoch+1}/{warmup_epochs})")
+        else:
+            print(f"Current LR: {optimizer.param_groups[0]['lr']:.2e}")
 
         train_loss = train_epoch(model, train_loader, criterion, optimizer, device, epoch+1, model_name)
         val_metrics = validate_epoch(model, val_loader, criterion, device, epoch+1, model_name, config['num_classes'])
-        scheduler.step(val_metrics['iou'])
+        
+        # Only step scheduler after warmup period
+        if warmup_epochs == 0 or epoch >= warmup_epochs:
+            scheduler.step(val_metrics['iou'])
 
         val_loss = val_metrics['loss']
         val_iou = val_metrics['iou']
@@ -381,9 +411,9 @@ def main():
     """
     parser = argparse.ArgumentParser(description='Train baseline models for GhanaSegNet research')
     parser.add_argument('--model', type=str, required=True, 
-                       choices=['unet', 'deeplabv3plus', 'segformer', 'ghanasegnet', 'ghanasegnet_v2', 'all'],
+                       choices=['unet', 'deeplabv3plus', 'segformer', 'ghanasegnet', 'all'],
                        help='Model to train')
-    parser.add_argument('--epochs', type=int, default=80, help='Number of epochs')
+    parser.add_argument('--epochs', type=int, default=15, help='Number of epochs')
     parser.add_argument('--batch-size', type=int, default=8, help='Batch size')
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
     parser.add_argument('--num-classes', type=int, default=6, help='Number of classes')
@@ -423,7 +453,7 @@ def main():
     print()
 
     if args.model == 'all':
-        models_to_train = ['unet', 'deeplabv3plus', 'segformer', 'ghanasegnet', 'ghanasegnet_v2']
+        models_to_train = ['unet', 'deeplabv3plus', 'segformer', 'ghanasegnet']
         results = {}
         print(f"\nSTARTING COMPREHENSIVE MODEL COMPARISON")
         print(f"Models to train: {', '.join([m.upper() for m in models_to_train])}")
@@ -437,7 +467,7 @@ def main():
                 results[model_name] = {
                     'best_iou': result['best_iou'],
                     'status': 'completed',
-                    'model_type': 'baseline' if model_name not in ['ghanasegnet', 'ghanasegnet_v2'] else 'novel'
+                    'model_type': 'baseline' if model_name != 'ghanasegnet' else 'novel'
                 }
                 print(f"{model_name.upper()} completed - Best IoU: {result['best_iou']:.4f}")
             except Exception as e:
@@ -445,7 +475,7 @@ def main():
                 results[model_name] = {
                     'best_iou': 0.0,
                     'status': f'failed: {e}',
-                    'model_type': 'baseline' if model_name not in ['ghanasegnet', 'ghanasegnet_v2'] else 'novel'
+                    'model_type': 'baseline' if model_name != 'ghanasegnet' else 'novel'
                 }
         os.makedirs('checkpoints', exist_ok=True)
         with open('checkpoints/training_summary.json', 'w') as f:
