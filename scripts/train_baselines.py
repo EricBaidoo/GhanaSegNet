@@ -590,14 +590,14 @@ def enhanced_train_model(model_name='enhanced_ghanasegnet', epochs=15, batch_siz
     # Load dataset with progressive training capability
     try:
         # Start with base resolution, will increase progressively
-        train_dataset = GhanaFoodDataset(dataset_path, split='train', data_root=dataset_path, 
+        train_dataset = GhanaFoodDataset(split='train', data_root=dataset_path, 
                                        target_size=(256, 256))  # Start with 256
-        val_dataset = GhanaFoodDataset(dataset_path, split='val', data_root=dataset_path,
+        val_dataset = GhanaFoodDataset(split='val', data_root=dataset_path,
                                      target_size=(256, 256))
     except:
         # Fallback for different dataset structure
-        train_dataset = GhanaFoodDataset('data', split='train', target_size=(256, 256))
-        val_dataset = GhanaFoodDataset('data', split='val', target_size=(256, 256))
+        train_dataset = GhanaFoodDataset(split='train', data_root='data', target_size=(256, 256))
+        val_dataset = GhanaFoodDataset(split='val', data_root='data', target_size=(256, 256))
     
     # Progressive training schedule: resolution increases during training
     progressive_schedule = {
