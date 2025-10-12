@@ -260,8 +260,17 @@ def train_model(model_name, config):
     print("Loading datasets...")
     data_root = config.get('dataset_path', 'data')
     print(f"Using dataset path: {data_root}")
-    train_dataset = GhanaFoodDataset('train', target_size=input_size, data_root=data_root)
-    val_dataset = GhanaFoodDataset('val', target_size=input_size, data_root=data_root)
+    
+    # Try new dataset loader with data_root parameter, fallback to old version
+    try:
+        train_dataset = GhanaFoodDataset('train', target_size=input_size, data_root=data_root)
+        val_dataset = GhanaFoodDataset('val', target_size=input_size, data_root=data_root)
+        print(f"✅ Using enhanced dataset loader with custom data path")
+    except TypeError:
+        # Fallback for older dataset loader without data_root parameter
+        print(f"⚠️  Using fallback dataset loader (expects data in './data' folder)")
+        train_dataset = GhanaFoodDataset('train', target_size=input_size)
+        val_dataset = GhanaFoodDataset('val', target_size=input_size)
     train_loader = DataLoader(
         train_dataset, 
         batch_size=config['batch_size'], 
