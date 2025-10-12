@@ -543,11 +543,12 @@ def main():
     else:
         train_model(args.model, config)
 
-def enhanced_train_model(model_name='enhanced_ghanasegnet', epochs=15, batch_size=8, 
-                        learning_rate=2.5e-4, weight_decay=1.2e-3, num_classes=6,
-                        dataset_path='data', device='cuda', disable_early_stopping=True,
+def enhanced_train_model(model_name='enhanced_ghanasegnet', epochs=15, batch_size=6, 
+                        learning_rate=1.8e-4, weight_decay=1.5e-3, num_classes=6,
+                        dataset_path='data', device='cuda', disable_early_stopping=False,
                         use_cosine_schedule=True, use_progressive_training=True,
-                        mixed_precision=True, benchmark_mode=True, custom_seed=789):
+                        mixed_precision=True, benchmark_mode=True, custom_seed=789,
+                        input_size=320, use_advanced_augmentation=True):
     """
     Enhanced training function optimized for 30% mIoU target in 15 epochs
     """
@@ -586,25 +587,36 @@ def enhanced_train_model(model_name='enhanced_ghanasegnet', epochs=15, batch_siz
     criterion = CombinedLoss(alpha=0.6, aux_weight=0.4, adaptive_weights=True).to(device)
     print(f"✅ Advanced boundary-aware loss function")
     
-    # Load dataset
+    # Load dataset with optimized configuration
     try:
-        train_dataset = GhanaFoodDataset(dataset_path, split='train', data_root=dataset_path)
-        val_dataset = GhanaFoodDataset(dataset_path, split='val', data_root=dataset_path)
+        # Use higher resolution and advanced augmentation for better performance
+        train_dataset = GhanaFoodDataset(dataset_path, split='train', data_root=dataset_path, 
+                                       target_size=(input_size, input_size))
+        val_dataset = GhanaFoodDataset(dataset_path, split='val', data_root=dataset_path,
+                                     target_size=(input_size, input_size))
     except:
         # Fallback for different dataset structure
-        train_dataset = GhanaFoodDataset('data', split='train')
-        val_dataset = GhanaFoodDataset('data', split='val')
+        train_dataset = GhanaFoodDataset('data', split='train', target_size=(input_size, input_size))
+        val_dataset = GhanaFoodDataset('data', split='val', target_size=(input_size, input_size))
     
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
+    # Advanced data loading with better workers and pin_memory
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, 
+                             num_workers=4, pin_memory=True, drop_last=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, 
+                           num_workers=4, pin_memory=True)
     
     print(f"📊 Dataset: {len(train_dataset)} train, {len(val_dataset)} val samples")
     
-    # Training tracking
+    # Advanced training tracking with early stopping
     best_val_iou = 0.0
     training_history = []
     milestone_alerts = [25.0, 27.0, 28.0, 29.0, 30.0]  # mIoU milestones
     achieved_milestones = set()
+    
+    # Early stopping to prevent overfitting (since you get drops after epoch 11)
+    early_stopping_patience = 6
+    early_stopping_counter = 0
+    early_stopping_min_delta = 0.002  # Minimum improvement threshold
     
     # Mixed precision training
     if mixed_precision and device == 'cuda':
@@ -776,10 +788,34 @@ def enhanced_train_model(model_name='enhanced_ghanasegnet', epochs=15, batch_siz
         # Progress toward 30% target
         progress_to_target = (current_miou_percent - 24.4) / (30.0 - 24.4) * 100
         print(f"   📈 Progress to 30% target: {progress_to_target:.1f}%")
+        
+        # Early stopping logic to prevent overfitting (addresses epoch 11+ drops)
+        if not disable_early_stopping:
+            if is_best:
+                # Reset counter if we found a better model
+                early_stopping_counter = 0
+            else:
+                # Check if improvement is significant enough
+                improvement = avg_val_iou - best_val_iou
+                if improvement < early_stopping_min_delta:
+                    early_stopping_counter += 1
+                    print(f"   ⚠️  Early stopping: {early_stopping_counter}/{early_stopping_patience} epochs without improvement")
+                    
+                    if early_stopping_counter >= early_stopping_patience:
+                        print(f"\n🛑 EARLY STOPPING TRIGGERED!")
+                        print(f"   No significant improvement for {early_stopping_patience} epochs")
+                        print(f"   Best mIoU: {best_val_iou:.4f} ({best_val_iou*100:.2f}%)")
+                        print(f"   Stopping at epoch {epoch} to prevent overfitting")
+                        break
+                else:
+                    # Reset counter if there was some improvement
+                    early_stopping_counter = 0
+        
+        print("-" * 60)
     
     # Final results
     print(f"\n" + "="*60)
-    print(f"🏁 ENHANCED GHANASEGNET 15-EPOCH TRAINING COMPLETE!")
+    print(f"🏁 ENHANCED GHANASEGNET TRAINING COMPLETE!")
     print(f"="*60)
     print(f"🎯 FINAL RESULTS:")
     print(f"   Best mIoU: {best_val_iou:.4f} ({best_val_iou*100:.2f}%)")
