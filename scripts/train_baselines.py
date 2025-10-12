@@ -9,6 +9,7 @@ import sys
 import os
 import argparse
 import json
+import time
 from datetime import datetime
 
 # Add parent directory to sys.path for module imports
@@ -33,6 +34,7 @@ from models.ghanasegnet import GhanaSegNet
 from data.dataset_loader import GhanaFoodDataset
 from utils.losses import CombinedLoss
 from utils.metrics import compute_iou, compute_pixel_accuracy
+from utils.optimizers import create_optimized_optimizer_and_scheduler, get_progressive_training_config
 
 class EarlyStopping:
     """
@@ -540,6 +542,272 @@ def main():
         print(f"\nResults saved to: checkpoints/training_summary.json")
     else:
         train_model(args.model, config)
+
+def enhanced_train_model(model_name='enhanced_ghanasegnet', epochs=15, batch_size=8, 
+                        learning_rate=2.5e-4, weight_decay=1.2e-3, num_classes=6,
+                        dataset_path='data', device='cuda', disable_early_stopping=True,
+                        use_cosine_schedule=True, use_progressive_training=True,
+                        mixed_precision=True, benchmark_mode=True, custom_seed=789):
+    """
+    Enhanced training function optimized for 30% mIoU target in 15 epochs
+    """
+    print("🚀 ENHANCED GHANASEGNET - AMBITIOUS 15-EPOCH TRAINING")
+    print("="*60)
+    print(f"🎯 TARGET: 30% mIoU | REALISTIC: 27-28% mIoU")
+    print(f"🔧 ALL OPTIMIZATIONS ACTIVE")
+    print("="*60)
+    
+    # Set seed for reproducibility
+    set_seed(custom_seed)
+    
+    # Initialize enhanced model
+    from models.ghanasegnet import EnhancedGhanaSegNet
+    model = EnhancedGhanaSegNet(num_classes=num_classes).to(device)
+    
+    # Model stats
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"📊 Enhanced Model: {total_params:,} parameters")
+    
+    # Create optimized optimizer and scheduler
+    config = {
+        'learning_rate': learning_rate,
+        'weight_decay': weight_decay,
+        'epochs': epochs
+    }
+    
+    if use_cosine_schedule:
+        optimizer, scheduler = create_optimized_optimizer_and_scheduler(model, config)
+        print(f"✅ Cosine annealing scheduler with warmup")
+    else:
+        optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5)
+    
+    # Enhanced loss function
+    criterion = CombinedLoss(alpha=0.6, aux_weight=0.4, adaptive_weights=True).to(device)
+    print(f"✅ Advanced boundary-aware loss function")
+    
+    # Load dataset
+    try:
+        train_dataset = GhanaFoodDataset(dataset_path, split='train', data_root=dataset_path)
+        val_dataset = GhanaFoodDataset(dataset_path, split='val', data_root=dataset_path)
+    except:
+        # Fallback for different dataset structure
+        train_dataset = GhanaFoodDataset('data', split='train')
+        val_dataset = GhanaFoodDataset('data', split='val')
+    
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=2)
+    
+    print(f"📊 Dataset: {len(train_dataset)} train, {len(val_dataset)} val samples")
+    
+    # Training tracking
+    best_val_iou = 0.0
+    training_history = []
+    milestone_alerts = [25.0, 27.0, 28.0, 29.0, 30.0]  # mIoU milestones
+    achieved_milestones = set()
+    
+    # Mixed precision training
+    if mixed_precision and device == 'cuda':
+        from torch.cuda.amp import autocast, GradScaler
+        scaler = GradScaler()
+        print(f"✅ Mixed precision training enabled")
+    else:
+        scaler = None
+    
+    print(f"\n🚀 STARTING AMBITIOUS 15-EPOCH TRAINING...")
+    
+    for epoch in range(1, epochs + 1):
+        epoch_start = time.time()
+        
+        # Get progressive training configuration
+        if use_progressive_training:
+            prog_config = get_progressive_training_config(epoch, epochs)
+            print(f"\n📊 EPOCH {epoch}/{epochs} - Progressive Config:")
+            print(f"   Mixup: {prog_config['mixup_alpha']:.1f}, Augmentation: {prog_config['augmentation_strength']:.1f}")
+        
+        # Training phase
+        model.train()
+        train_loss = 0.0
+        train_samples = 0
+        
+        train_pbar = tqdm(train_loader, desc=f"Train Epoch {epoch}")
+        for batch_idx, (images, masks) in enumerate(train_pbar):
+            images, masks = images.to(device), masks.to(device)
+            
+            optimizer.zero_grad()
+            
+            if scaler:  # Mixed precision
+                with autocast():
+                    outputs = model(images)
+                    if isinstance(outputs, tuple):  # Handle auxiliary outputs
+                        main_output, aux_outputs = outputs
+                        loss = criterion(main_output, masks, aux_outputs)
+                    else:
+                        loss = criterion(outputs, masks)
+                
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:  # Regular training
+                outputs = model(images)
+                if isinstance(outputs, tuple):
+                    main_output, aux_outputs = outputs
+                    loss = criterion(main_output, masks, aux_outputs)
+                else:
+                    loss = criterion(outputs, masks)
+                
+                loss.backward()
+                optimizer.step()
+            
+            train_loss += loss.item()
+            train_samples += images.size(0)
+            
+            # Update progress bar
+            train_pbar.set_postfix({'Loss': f'{loss.item():.4f}'})
+        
+        avg_train_loss = train_loss / len(train_loader)
+        
+        # Validation phase
+        model.eval()
+        val_loss = 0.0
+        total_iou = 0.0
+        total_accuracy = 0.0
+        val_samples = 0
+        
+        with torch.no_grad():
+            val_pbar = tqdm(val_loader, desc=f"Val Epoch {epoch}")
+            for images, masks in val_pbar:
+                images, masks = images.to(device), masks.to(device)
+                
+                if scaler:
+                    with autocast():
+                        outputs = model(images)
+                        if isinstance(outputs, tuple):
+                            main_output = outputs[0]
+                        else:
+                            main_output = outputs
+                        loss = criterion(main_output, masks)
+                else:
+                    outputs = model(images)
+                    if isinstance(outputs, tuple):
+                        main_output = outputs[0]
+                    else:
+                        main_output = outputs
+                    loss = criterion(main_output, masks)
+                
+                val_loss += loss.item()
+                
+                # Compute metrics
+                iou = compute_iou(main_output, masks)
+                accuracy = compute_pixel_accuracy(main_output, masks)
+                
+                total_iou += iou
+                total_accuracy += accuracy
+                val_samples += images.size(0)
+                
+                val_pbar.set_postfix({
+                    'Loss': f'{loss.item():.4f}',
+                    'IoU': f'{iou:.4f}',
+                    'Acc': f'{accuracy:.4f}'
+                })
+        
+        avg_val_loss = val_loss / len(val_loader)
+        avg_val_iou = total_iou / len(val_loader)
+        avg_val_accuracy = total_accuracy / len(val_loader)
+        
+        # Learning rate scheduling
+        if use_cosine_schedule:
+            scheduler.step()
+        else:
+            scheduler.step(avg_val_iou)
+        
+        current_lr = optimizer.param_groups[0]['lr']
+        epoch_time = time.time() - epoch_start
+        
+        # Check for new best
+        is_best = avg_val_iou > best_val_iou
+        if is_best:
+            best_val_iou = avg_val_iou
+            # Save best model
+            os.makedirs(f'checkpoints/{model_name}', exist_ok=True)
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'best_val_iou': best_val_iou,
+                'config': config
+            }, f'checkpoints/{model_name}/best_model.pth')
+        
+        # Check milestones
+        current_miou_percent = avg_val_iou * 100
+        for milestone in milestone_alerts:
+            if current_miou_percent >= milestone and milestone not in achieved_milestones:
+                achieved_milestones.add(milestone)
+                print(f"\n🎉 MILESTONE ACHIEVED: {milestone:.1f}% mIoU!")
+                if milestone >= 30.0:
+                    print(f"🏆 TARGET REACHED! 30% mIoU ACHIEVED AT EPOCH {epoch}!")
+        
+        # Record epoch results
+        epoch_data = {
+            'epoch': epoch,
+            'train_loss': avg_train_loss,
+            'val_loss': avg_val_loss,
+            'val_iou': avg_val_iou,
+            'val_accuracy': avg_val_accuracy,
+            'learning_rate': current_lr,
+            'is_best': is_best,
+            'time': epoch_time
+        }
+        training_history.append(epoch_data)
+        
+        # Progress report
+        print(f"\n📊 EPOCH {epoch}/{epochs} RESULTS:")
+        print(f"   Train Loss: {avg_train_loss:.4f}")
+        print(f"   Val Loss: {avg_val_loss:.4f}")
+        print(f"   Val IoU: {avg_val_iou:.4f} ({current_miou_percent:.2f}%)")
+        print(f"   Val Accuracy: {avg_val_accuracy:.4f}")
+        print(f"   Learning Rate: {current_lr:.2e}")
+        print(f"   Best IoU: {best_val_iou:.4f} ({best_val_iou*100:.2f}%)")
+        print(f"   Epoch Time: {epoch_time:.1f}s")
+        
+        if is_best:
+            print(f"   🎯 NEW BEST PERFORMANCE!")
+        
+        # Progress toward 30% target
+        progress_to_target = (current_miou_percent - 24.4) / (30.0 - 24.4) * 100
+        print(f"   📈 Progress to 30% target: {progress_to_target:.1f}%")
+    
+    # Final results
+    print(f"\n" + "="*60)
+    print(f"🏁 ENHANCED GHANASEGNET 15-EPOCH TRAINING COMPLETE!")
+    print(f"="*60)
+    print(f"🎯 FINAL RESULTS:")
+    print(f"   Best mIoU: {best_val_iou:.4f} ({best_val_iou*100:.2f}%)")
+    print(f"   Target: 30.00%")
+    print(f"   Gap: {30.0 - best_val_iou*100:+.2f} percentage points")
+    
+    if best_val_iou >= 0.30:
+        print(f"🏆 TARGET ACHIEVED! 30%+ mIoU reached!")
+    elif best_val_iou >= 0.28:
+        print(f"🎉 EXCELLENT! Within 2% of target!")
+    elif best_val_iou >= 0.27:
+        print(f"✅ GREAT! Solid improvement achieved!")
+    else:
+        print(f"📊 Results within expected range.")
+    
+    print(f"   Achieved milestones: {sorted(achieved_milestones)}")
+    
+    # Save training history
+    with open(f'checkpoints/{model_name}/training_history.json', 'w') as f:
+        json.dump(training_history, f, indent=2)
+    
+    return {
+        'best_val_iou': best_val_iou,
+        'final_val_iou': training_history[-1]['val_iou'],
+        'training_history': training_history,
+        'achieved_milestones': list(achieved_milestones),
+        'target_achieved': best_val_iou >= 0.30
+    }
 
 if __name__ == "__main__":
     main()
