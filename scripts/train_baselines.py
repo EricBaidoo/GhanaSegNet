@@ -241,7 +241,11 @@ def train_model(model_name, config):
         else:
             print("   - Fast mode enabled (non-deterministic operations)")
     
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # Handle device selection
+    if config.get('device') == 'auto' or config.get('device') is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    else:
+        device = torch.device(config['device'])
     print(f"Using device: {device}")
 
     # Set input sizes based on original papers
@@ -254,8 +258,10 @@ def train_model(model_name, config):
     input_size = model_input_sizes.get(model_name.lower(), (256, 256))
 
     print("Loading datasets...")
-    train_dataset = GhanaFoodDataset('train', target_size=input_size)
-    val_dataset = GhanaFoodDataset('val', target_size=input_size)
+    data_root = config.get('dataset_path', 'data')
+    print(f"Using dataset path: {data_root}")
+    train_dataset = GhanaFoodDataset('train', target_size=input_size, data_root=data_root)
+    val_dataset = GhanaFoodDataset('val', target_size=input_size, data_root=data_root)
     train_loader = DataLoader(
         train_dataset, 
         batch_size=config['batch_size'], 
@@ -435,6 +441,8 @@ def main():
     parser.add_argument('--batch-size', type=int, default=8, help='Batch size')
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
     parser.add_argument('--num-classes', type=int, default=6, help='Number of classes')
+    parser.add_argument('--dataset-path', type=str, default='data', help='Path to dataset directory')
+    parser.add_argument('--device', type=str, default='auto', choices=['auto', 'cpu', 'cuda'], help='Device to use')
     parser.add_argument('--seed', type=int, default=None, 
                        help='Override default model-specific seeds (for debugging only)')
     parser.add_argument('--benchmark-mode', action='store_true', default=True,
@@ -448,12 +456,14 @@ def main():
     
     config = {
         'epochs': args.epochs,
-        'batch_size': args.batch_size,
+        'batch_size': getattr(args, 'batch_size', 8),
         'learning_rate': args.lr,
         'weight_decay': 1e-4,
         'num_classes': args.num_classes,
         'custom_seed': args.seed,
         'benchmark_mode': benchmark_mode,
+        'dataset_path': getattr(args, 'dataset_path', 'data'),
+        'device': getattr(args, 'device', 'auto'),
         'timestamp': datetime.now().isoformat(),
         'note': 'Using ORIGINAL loss functions for fair baseline comparison'
     }
