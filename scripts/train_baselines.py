@@ -583,23 +583,35 @@ def enhanced_train_model(model_name='enhanced_ghanasegnet', epochs=15, batch_siz
         optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5)
     
-    # Enhanced loss function
+    # Enhanced loss function with dynamic weighting
     criterion = CombinedLoss(alpha=0.6, aux_weight=0.4, adaptive_weights=True).to(device)
     print(f"✅ Advanced boundary-aware loss function")
     
-    # Load dataset with optimized configuration
+    # Load dataset with progressive training capability
     try:
-        # Use higher resolution and advanced augmentation for better performance
+        # Start with base resolution, will increase progressively
         train_dataset = GhanaFoodDataset(dataset_path, split='train', data_root=dataset_path, 
-                                       target_size=(input_size, input_size))
+                                       target_size=(256, 256))  # Start with 256
         val_dataset = GhanaFoodDataset(dataset_path, split='val', data_root=dataset_path,
-                                     target_size=(input_size, input_size))
+                                     target_size=(256, 256))
     except:
         # Fallback for different dataset structure
-        train_dataset = GhanaFoodDataset('data', split='train', target_size=(input_size, input_size))
-        val_dataset = GhanaFoodDataset('data', split='val', target_size=(input_size, input_size))
+        train_dataset = GhanaFoodDataset('data', split='train', target_size=(256, 256))
+        val_dataset = GhanaFoodDataset('data', split='val', target_size=(256, 256))
     
-    # Advanced data loading with better workers and pin_memory
+    # Progressive training schedule: resolution increases during training
+    progressive_schedule = {
+        'epochs_256': 5,   # First 5 epochs: 256x256 (stable learning)
+        'epochs_320': 6,   # Next 6 epochs: 320x320 (detail enhancement)
+        'epochs_384': 4    # Final 4 epochs: 384x384 (maximum performance)
+    }
+    current_resolution = 256
+    print(f"🔄 PROGRESSIVE TRAINING ACTIVE:")
+    print(f"   Epochs 1-5: 256x256 (stable learning)")
+    print(f"   Epochs 6-11: 320x320 (detail enhancement)")
+    print(f"   Epochs 12-15: 384x384 (maximum performance)")
+    
+    # Initialize data loaders (will be recreated during progressive training)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, 
                              num_workers=4, pin_memory=True, drop_last=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, 
@@ -631,10 +643,43 @@ def enhanced_train_model(model_name='enhanced_ghanasegnet', epochs=15, batch_siz
     for epoch in range(1, epochs + 1):
         epoch_start = time.time()
         
+        # 🔄 PROGRESSIVE RESOLUTION TRAINING for 30% mIoU target
+        new_resolution = current_resolution
+        current_batch_size = batch_size
+        
+        if epoch <= 5:
+            new_resolution = 256
+            current_batch_size = 8  # Higher batch size for smaller resolution
+        elif epoch <= 11:
+            new_resolution = 320
+            current_batch_size = 6  # Medium batch size
+        else:
+            new_resolution = 384
+            current_batch_size = 4  # Smaller batch size for higher resolution
+        
+        # Update resolution if changed (critical for capturing fine details)
+        if new_resolution != current_resolution:
+            current_resolution = new_resolution
+            print(f"\n🔄 PROGRESSIVE TRAINING: Switching to {current_resolution}x{current_resolution}")
+            print(f"   Batch size adjusted to: {current_batch_size}")
+            
+            # Update dataset resolution
+            train_dataset.target_size = (current_resolution, current_resolution)
+            val_dataset.target_size = (current_resolution, current_resolution)
+            
+            # Recreate data loaders with new batch size
+            train_loader = DataLoader(train_dataset, batch_size=current_batch_size, shuffle=True, 
+                                     num_workers=4, pin_memory=True, drop_last=True)
+            val_loader = DataLoader(val_dataset, batch_size=current_batch_size, shuffle=False, 
+                                   num_workers=4, pin_memory=True)
+            
+            print(f"   ✅ Resolution updated: {current_resolution}x{current_resolution}")
+        
         # Get progressive training configuration
         if use_progressive_training:
             prog_config = get_progressive_training_config(epoch, epochs)
             print(f"\n📊 EPOCH {epoch}/{epochs} - Progressive Config:")
+            print(f"   Resolution: {current_resolution}x{current_resolution}, Batch: {current_batch_size}")
             print(f"   Mixup: {prog_config['mixup_alpha']:.1f}, Augmentation: {prog_config['augmentation_strength']:.1f}")
         
         # Training phase
