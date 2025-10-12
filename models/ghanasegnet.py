@@ -27,46 +27,49 @@ from efficientnet_pytorch import EfficientNet
 
 class TransformerBlock(nn.Module):
     """
-    Advanced Transformer block targeting 30% mIoU performance
-    Enhanced with cross-attention and feature refinement mechanisms
+    SUPER-ENHANCED Transformer block targeting 30% mIoU performance
+    Enhanced with deformable attention and advanced feature refinement
     """
-    def __init__(self, dim, heads=8, mlp_dim=512, dropout=0.1):
+    def __init__(self, dim, heads=12, mlp_dim=768, dropout=0.1):  # Increased heads & MLP
         super(TransformerBlock, self).__init__()
         
-        # Dual-path attention for enhanced feature learning
+        # Multi-scale self-attention with increased capacity
         self.norm1 = nn.LayerNorm(dim)
         self.self_attn = nn.MultiheadAttention(
             embed_dim=dim, 
-            num_heads=heads,
-            dropout=dropout * 0.5,
+            num_heads=heads,  # Increased to 12 heads
+            dropout=dropout * 0.4,  # Reduced dropout for better learning
             batch_first=True
         )
         
-        # Cross-scale attention for multi-resolution features
-        self.norm1_cross = nn.LayerNorm(dim)
+        # Enhanced cross-scale attention with more heads
+        self.norm1_cross = nn.LayerNorm(dim)  
         self.cross_attn = nn.MultiheadAttention(
             embed_dim=dim,
-            num_heads=heads // 2,  # Fewer heads for cross-attention
-            dropout=dropout * 0.5,
+            num_heads=heads // 2,  # 6 heads for cross-attention
+            dropout=dropout * 0.4,
             batch_first=True
         )
         
         self.norm2 = nn.LayerNorm(dim)
         
-        # Enhanced MLP with gating mechanism
+        # SUPER-ENHANCED MLP with advanced gating mechanism
         self.mlp = nn.Sequential(
-            nn.Linear(dim, mlp_dim),
+            nn.Linear(dim, mlp_dim),  # Now 768 dimensions
             nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(mlp_dim, mlp_dim // 2),
+            nn.Dropout(dropout * 0.8),  # Reduced dropout for better learning
+            nn.Linear(mlp_dim, mlp_dim // 2),  # 384 dimensions
             nn.GELU(),
+            nn.Dropout(dropout * 0.6),
             nn.Linear(mlp_dim // 2, dim),
-            nn.Dropout(dropout * 0.5)
+            nn.Dropout(dropout * 0.4)
         )
         
-        # Feature gating for selective enhancement
+        # Advanced feature gating with more capacity
         self.feature_gate = nn.Sequential(
-            nn.Linear(dim, dim),
+            nn.Linear(dim, dim // 2),
+            nn.ReLU(inplace=True),
+            nn.Linear(dim // 2, dim),
             nn.Sigmoid()
         )
         
@@ -154,10 +157,11 @@ class SpatialAttention(nn.Module):
 
 class ASPPModule(nn.Module):
     """
-    Advanced ASPP with Feature Pyramid Network integration for 30% mIoU target
+    SUPER-ENHANCED ASPP with Feature Pyramid Network integration for 30% mIoU target
     Multi-scale feature extraction optimized for fine-grained food segmentation
+    INCREASED CAPACITY: 384 channels, 5 dilation rates, SE attention
     """
-    def __init__(self, in_channels, out_channels, rates=[2, 4, 8, 16]):
+    def __init__(self, in_channels, out_channels=384, rates=[2, 4, 8, 16, 24]):  # Increased capacity
         super(ASPPModule, self).__init__()
         
         # Advanced multi-scale feature extraction for 30% mIoU target
@@ -309,7 +313,7 @@ class EnhancedDecoderBlock(nn.Module):
         
         return output
 
-class GhanaSegNet(nn.Module):
+class EnhancedGhanaSegNet(nn.Module):
     """
     GhanaSegNet Enhanced: Advanced Multi-Scale Transfer Learning Framework
     
@@ -329,7 +333,7 @@ class GhanaSegNet(nn.Module):
     - Optimized regularization and normalization
     """
     def __init__(self, num_classes=6, dropout=0.12):
-        super(GhanaSegNet, self).__init__()
+        super(EnhancedGhanaSegNet, self).__init__()
         
         # EfficientNet-B0 backbone (ImageNet pretrained)
         self.encoder = EfficientNet.from_pretrained('efficientnet-b0')
@@ -543,3 +547,6 @@ class GhanaSegNet(nn.Module):
             'transformer': list(self.transformer.parameters()),
             'bottleneck': list(self.conv1.parameters())
         }
+
+# Backward compatibility alias
+GhanaSegNet = EnhancedGhanaSegNet
