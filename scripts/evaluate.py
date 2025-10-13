@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Enhanced Multi-Model Evaluation Script for GhanaSegNet Research Project
-Evaluates trained baseline models: UNet, DeepLabV3+, SegFormer-B0, GhanaSegNet, GhanaSegNetV2
+Evaluates trained baseline models: UNet, DeepLabV3+, SegFormer-B0, GhanaSegNet (Enhanced)
 Author: EricBaidoo
 """
 
@@ -26,7 +26,6 @@ from models.unet import UNet
 from models.deeplabv3plus import DeepLabV3Plus
 from models.segformer import SegFormerB0
 from models.ghanasegnet import GhanaSegNet
-from models.ghanasegnet_v2 import GhanaSegNetV2
 
 # Import utilities
 from data.dataset_loader import GhanaFoodDataset
@@ -41,8 +40,7 @@ def get_model_and_criterion(model_name, num_classes=6):
         'unet': lambda: UNet(n_channels=3, n_classes=num_classes),
         'deeplabv3plus': lambda: DeepLabV3Plus(num_classes=num_classes),
         'segformer': lambda: SegFormerB0(num_classes=num_classes),
-        'ghanasegnet': lambda: GhanaSegNet(num_classes=num_classes),
-        'ghanasegnet_v2': lambda: GhanaSegNetV2(num_classes=num_classes)
+        'ghanasegnet': lambda: GhanaSegNet(num_classes=num_classes)
     }
     
     if model_name.lower() not in models:
@@ -205,7 +203,7 @@ def generate_evaluation_report(results, output_path):
 def main():
     parser = argparse.ArgumentParser(description='Evaluate trained models for GhanaSegNet research')
     parser.add_argument('--model', type=str, required=True,
-                       choices=['unet', 'deeplabv3plus', 'segformer', 'ghanasegnet', 'ghanasegnet_v2'],
+                       choices=['unet', 'deeplabv3plus', 'segformer', 'ghanasegnet'],
                        help='Model architecture to evaluate')
     parser.add_argument('--checkpoint', type=str, required=True,
                        help='Path to model checkpoint (.pth file)')

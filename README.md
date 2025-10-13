@@ -63,7 +63,7 @@ python run_clean_benchmarking.py
 GhanaSegNet/
 ├── models/                          # Model implementations
 │   ├── ghanasegnet.py              # GhanaSegNet V1 
-│   ├── ghanasegnet_v2.py           # GhanaSegNet V2 (Enhanced)
+│   ├── ghanasegnet.py              # GhanaSegNet (Enhanced Architecture)
 │   ├── unet.py                     # U-Net baseline
 │   ├── deeplabv3plus.py            # DeepLabV3+ baseline  
 │   └── segformer.py                # SegFormer baseline
@@ -140,7 +140,7 @@ python run_clean_benchmarking.py
 ### Option 2: Train Individual Models
 ```bash
 # Train GhanaSegNet V2 (best performance)  
-python scripts/train_baselines.py --model ghanasegnet_v2 --epochs 15
+python scripts/train_baselines.py --model ghanasegnet --epochs 15
 
 # Train GhanaSegNet V1
 python scripts/train_baselines.py --model ghanasegnet --epochs 15
@@ -170,10 +170,10 @@ Training automatically generates:
 ### Manual Evaluation
 ```bash
 # Evaluate specific model on test set
-python scripts/evaluate.py --model ghanasegnet_v2 --checkpoint checkpoints/ghanasegnet_v2/best_ghanasegnet_v2.pth
+python scripts/evaluate.py --model ghanasegnet --checkpoint checkpoints/ghanasegnet/best_model.pth
 
 # Generate visual predictions
-python scripts/test.py --model ghanasegnet_v2 --image path/to/test/image.jpg
+python scripts/test.py --model ghanasegnet --image path/to/test/image.jpg
 ```
 
 ## 🔬 Research Features

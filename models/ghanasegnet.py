@@ -2,22 +2,23 @@
 GhanaSegNet: Enhanced Hybrid CNN-Transformer Architecture
 for Semantic Segmentation of Traditional Ghanaian Foods
 
-Key Innovations:
+Key Innovations for 30% mIoU Target:
 - EfficientNet-B0 backbone with ImageNet pretraining
-- Enhanced transformer with 8 attention heads (vs 4)
-- ASPP module for multi-scale feature extraction
-- Enhanced spatial attention with channel attention
-- Improved decoder with progressive feature fusion
-- Optimized for fair benchmarking against DeepLabV3+
+- Enhanced transformer with 12 attention heads (384 dimensions)
+- 384-channel ASPP module for enhanced multi-scale feature extraction
+- Advanced spatial and channel attention mechanisms
+- Enhanced FPN-style decoder with progressive feature fusion
+- Multi-scale supervision with auxiliary loss heads
 
-Architectural Enhancements for Benchmarking:
-- Multi-scale context via ASPP (like DeepLabV3+)
-- Deeper transformer with better gradient flow
-- Enhanced attention mechanisms
-- Progressive decoder improvements
+Architectural Enhancements for 30% mIoU Performance:
+- Multi-scale context via enhanced ASPP (384 channels)
+- 12-head transformer with advanced attention mechanisms
+- Enhanced decoder blocks with increased capacity
+- Progressive training support (256→320→384px)
+- Advanced feature refinement and boundary enhancement
 
 Author: EricBaidoo
-Date: Enhanced October 11, 2025
+Date: Enhanced October 13, 2025 - 30% mIoU Target
 """
 
 import torch
@@ -338,67 +339,67 @@ class EnhancedGhanaSegNet(nn.Module):
         # EfficientNet-B0 backbone (ImageNet pretrained)
         self.encoder = EfficientNet.from_pretrained('efficientnet-b0')
         
-        # Optimized channel reduction with BatchNorm for stability
+        # Enhanced channel reduction for 30% mIoU target
         self.conv_reduce = nn.Sequential(
-            nn.Conv2d(1280, 256, kernel_size=1, bias=False),
-            nn.BatchNorm2d(256),
+            nn.Conv2d(1280, 384, kernel_size=1, bias=False),  # Increased to 384
+            nn.BatchNorm2d(384),
             nn.ReLU(inplace=True)
         )
         
-        # Food-optimized ASPP module with smaller dilations
-        self.aspp = ASPPModule(256, 256, rates=[3, 6, 12])
+        # Enhanced ASPP module with increased capacity
+        self.aspp = ASPPModule(384, 384, rates=[3, 6, 12])
         
         # Advanced transformer for 30% mIoU target
         self.transformer = TransformerBlock(
-            dim=256, 
-            heads=8,  # 8 heads for proper dimension division
-            mlp_dim=512,  # Increased for better feature learning
+            dim=384,  # Increased to support 12 heads (384 ÷ 12 = 32)
+            heads=12,  # 12 heads for enhanced attention capacity
+            mlp_dim=768,  # Proportionally increased MLP
             dropout=dropout * 0.8
         )
         
-        # Feature Pyramid Network style lateral connections
+        # Enhanced Feature Pyramid Network lateral connections
         self.lateral_convs = nn.ModuleList([
-            nn.Conv2d(320, 256, 1, bias=False),  # P5
-            nn.Conv2d(112, 256, 1, bias=False),  # P4  
-            nn.Conv2d(40, 256, 1, bias=False),   # P3
-            nn.Conv2d(24, 256, 1, bias=False),   # P2
+            nn.Conv2d(320, 384, 1, bias=False),  # P5
+            nn.Conv2d(112, 384, 1, bias=False),  # P4  
+            nn.Conv2d(40, 384, 1, bias=False),   # P3
+            nn.Conv2d(24, 384, 1, bias=False),   # P2
         ])
         
-        # FPN output convolutions
+        # Enhanced FPN output convolutions
         self.fpn_convs = nn.ModuleList([
             nn.Sequential(
-                nn.Conv2d(256, 128, 3, padding=1, bias=False),
-                nn.BatchNorm2d(128),
+                nn.Conv2d(384, 192, 3, padding=1, bias=False),  # Increased input channels
+                nn.BatchNorm2d(192),
                 nn.ReLU(inplace=True)
             ) for _ in range(4)
         ])
         
         # Advanced FPN-style decoder for 30% mIoU target
         # Multi-scale feature fusion with enhanced decoder blocks
-        self.dec4 = EnhancedDecoderBlock(256, 128, 128)  # FPN P5 features
-        self.dec3 = EnhancedDecoderBlock(256, 128, 96)   # FPN P4 features (256 from FPN + 128 from dec4)
-        self.dec2 = EnhancedDecoderBlock(224, 128, 64)   # FPN P3 features (96+128)
-        self.dec1 = EnhancedDecoderBlock(192, 128, 64)   # FPN P2 features (64+128)
+        self.dec4 = EnhancedDecoderBlock(384, 192, 192)  # Enhanced FPN P5 features
+        self.dec3 = EnhancedDecoderBlock(384, 192, 144)  # Enhanced FPN P4 features (192 from FPN + 192 from dec4)
+        self.dec2 = EnhancedDecoderBlock(336, 192, 96)   # Enhanced FPN P3 features (144+192)
+        self.dec1 = EnhancedDecoderBlock(288, 192, 96)   # Enhanced FPN P2 features (96+192)
         
         # Multi-scale supervision for enhanced training
         self.aux_heads = nn.ModuleList([
             nn.Sequential(
-                nn.Conv2d(128, 64, 3, padding=1, bias=False),
-                nn.BatchNorm2d(64),
+                nn.Conv2d(192, 96, 3, padding=1, bias=False),  # Updated for enhanced decoder
+                nn.BatchNorm2d(96),
                 nn.ReLU(inplace=True),
-                nn.Conv2d(64, 6, 1)  # Auxiliary prediction head
+                nn.Conv2d(96, 6, 1)  # Auxiliary prediction head
             ),
             nn.Sequential(
-                nn.Conv2d(96, 64, 3, padding=1, bias=False),
-                nn.BatchNorm2d(64),
+                nn.Conv2d(144, 96, 3, padding=1, bias=False),  # Updated for enhanced decoder
+                nn.BatchNorm2d(96),
                 nn.ReLU(inplace=True),
-                nn.Conv2d(64, 6, 1)
+                nn.Conv2d(96, 6, 1)
             )
         ])
         
         # Advanced final classification head with feature refinement
         self.final_conv = nn.Sequential(
-            nn.Conv2d(64, 64, 3, padding=1, bias=False),
+            nn.Conv2d(96, 64, 3, padding=1, bias=False),  # Updated input channels
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
             nn.Conv2d(64, 32, 3, padding=1, bias=False),
@@ -466,24 +467,24 @@ class EnhancedGhanaSegNet(nn.Module):
         x_enc = self.encoder._swish(x_enc)
         
         # Advanced bottleneck processing
-        x_bottleneck = self.conv_reduce(x_enc)      # Channel reduction to 256
+        x_bottleneck = self.conv_reduce(x_enc)      # Channel reduction to 384
         x_bottleneck = self.aspp(x_bottleneck)      # Enhanced multi-scale ASPP
-        x_bottleneck = self.transformer(x_bottleneck)  # Advanced transformer with cross-attention
+        x_bottleneck = self.transformer(x_bottleneck)  # Advanced transformer with 12-head attention
         
         # FPN-style lateral connections (top-down pathway)
         fpn_features = []
         
         # P5 (highest resolution feature map after bottleneck)
-        p5 = x_bottleneck  # 256 channels
+        p5 = x_bottleneck  # 384 channels
         fpn_features.append(self.fpn_convs[0](p5))
         
         # P4: lateral connection + top-down
-        lateral_p4 = self.lateral_convs[1](features[3])  # 112 -> 256
+        lateral_p4 = self.lateral_convs[1](features[3])  # 112 -> 384
         p4 = lateral_p4 + F.interpolate(p5, size=lateral_p4.shape[2:], mode='bilinear', align_corners=False)
         fpn_features.append(self.fpn_convs[1](p4))
         
         # P3: lateral connection + top-down  
-        lateral_p3 = self.lateral_convs[2](features[2])  # 40 -> 256
+        lateral_p3 = self.lateral_convs[2](features[2])  # 40 -> 384
         p3 = lateral_p3 + F.interpolate(p4, size=lateral_p3.shape[2:], mode='bilinear', align_corners=False)
         fpn_features.append(self.fpn_convs[2](p3))
         

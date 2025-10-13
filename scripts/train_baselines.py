@@ -211,6 +211,21 @@ def train_model(model_name, config):
     Main training function for a single model.
     Handles data loading, training loop, validation, checkpointing, and logging.
     """
+    # For GhanaSegNet, use enhanced training with all optimizations
+    if model_name == 'ghanasegnet':
+        return enhanced_train_model(
+            model_name=model_name,
+            epochs=config['epochs'],
+            batch_size=config['batch_size'],
+            learning_rate=config['learning_rate'],
+            weight_decay=config['weight_decay'],
+            num_classes=config['num_classes'],
+            dataset_path=config['dataset_path'],
+            device=config['device'],
+            benchmark_mode=config.get('benchmark_mode', True),
+            custom_seed=config.get('custom_seed', 789)
+        )
+    
     print(f"Starting training for {model_name.upper()}")
     print(f"Config: {json.dumps(config, indent=2)}")
     
@@ -543,7 +558,7 @@ def main():
     else:
         train_model(args.model, config)
 
-def enhanced_train_model(model_name='enhanced_ghanasegnet', epochs=15, batch_size=6, 
+def enhanced_train_model(model_name='ghanasegnet', epochs=15, batch_size=6, 
                         learning_rate=1.8e-4, weight_decay=1.5e-3, num_classes=6,
                         dataset_path='data', device='cuda', disable_early_stopping=False,
                         use_cosine_schedule=True, use_progressive_training=True,
@@ -562,8 +577,8 @@ def enhanced_train_model(model_name='enhanced_ghanasegnet', epochs=15, batch_siz
     set_seed(custom_seed)
     
     # Initialize enhanced model
-    from models.ghanasegnet import EnhancedGhanaSegNet
-    model = EnhancedGhanaSegNet(num_classes=num_classes).to(device)
+    from models.ghanasegnet import GhanaSegNet
+    model = GhanaSegNet(num_classes=num_classes).to(device)
     
     # Model stats
     total_params = sum(p.numel() for p in model.parameters())
