@@ -213,6 +213,11 @@ def train_model(model_name, config):
     """
     # For GhanaSegNet, use enhanced training with all optimizations
     if model_name == 'ghanasegnet':
+        # Ensure custom_seed is never None
+        custom_seed = config.get('custom_seed')
+        if custom_seed is None:
+            custom_seed = 789
+        
         return enhanced_train_model(
             model_name=model_name,
             epochs=config['epochs'],
@@ -223,7 +228,7 @@ def train_model(model_name, config):
             dataset_path=config['dataset_path'],
             device=config['device'],
             benchmark_mode=config.get('benchmark_mode', True),
-            custom_seed=config.get('custom_seed', 789)
+            custom_seed=custom_seed
         )
     
     print(f"Starting training for {model_name.upper()}")
@@ -576,6 +581,14 @@ def enhanced_train_model(model_name='ghanasegnet', epochs=15, batch_size=6,
     # Set seed for reproducibility
     set_seed(custom_seed)
     
+    # Handle device selection (resolve 'auto' to actual device)
+    if device == 'auto' or device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    elif isinstance(device, str):
+        device = torch.device(device)
+    
+    print(f"🖥️ Using device: {device}")
+    
     # Initialize enhanced model
     from models.ghanasegnet import GhanaSegNet
     model = GhanaSegNet(num_classes=num_classes).to(device)
@@ -603,16 +616,40 @@ def enhanced_train_model(model_name='ghanasegnet', epochs=15, batch_size=6,
     print(f"✅ Advanced boundary-aware loss function")
     
     # Load dataset with progressive training capability
+    # Try multiple approaches to handle different GhanaFoodDataset versions
+    train_dataset = None
+    val_dataset = None
+    
+    # First, try with data_root parameter (new version)
     try:
-        # Start with base resolution, will increase progressively
-        train_dataset = GhanaFoodDataset(split='train', data_root=dataset_path, 
-                                       target_size=(256, 256))  # Start with 256
-        val_dataset = GhanaFoodDataset(split='val', data_root=dataset_path,
-                                     target_size=(256, 256))
-    except:
-        # Fallback for different dataset structure
-        train_dataset = GhanaFoodDataset(split='train', data_root='data', target_size=(256, 256))
-        val_dataset = GhanaFoodDataset(split='val', data_root='data', target_size=(256, 256))
+        train_dataset = GhanaFoodDataset(split='train', transform=None, num_classes=num_classes,
+                                       target_size=(256, 256), data_root=dataset_path)
+        val_dataset = GhanaFoodDataset(split='val', transform=None, num_classes=num_classes,
+                                     target_size=(256, 256), data_root=dataset_path)
+        print(f"✅ Using enhanced dataset loader with data_root parameter")
+    except TypeError as e:
+        if 'data_root' in str(e):
+            # Second, try without data_root parameter (older version)
+            try:
+                train_dataset = GhanaFoodDataset(split='train', transform=None, num_classes=num_classes,
+                                               target_size=(256, 256))
+                val_dataset = GhanaFoodDataset(split='val', transform=None, num_classes=num_classes,
+                                             target_size=(256, 256))
+                print(f"✅ Using legacy dataset loader (no data_root parameter)")
+            except Exception as e2:
+                # Third, try minimal parameters (basic version)
+                try:
+                    train_dataset = GhanaFoodDataset('train', target_size=(256, 256))
+                    val_dataset = GhanaFoodDataset('val', target_size=(256, 256))
+                    print(f"✅ Using basic dataset loader")
+                except Exception as e3:
+                    print(f"❌ All dataset loading attempts failed:")
+                    print(f"   1. With data_root: {e}")
+                    print(f"   2. Without data_root: {e2}")
+                    print(f"   3. Basic version: {e3}")
+                    raise RuntimeError("Unable to load dataset with any available method")
+        else:
+            raise e
     
     # Progressive training schedule: resolution increases during training
     progressive_schedule = {
@@ -769,9 +806,10 @@ def enhanced_train_model(model_name='ghanasegnet', epochs=15, batch_size=6,
                 
                 val_loss += loss.item()
                 
-                # Compute metrics
-                iou = compute_iou(main_output, masks)
-                accuracy = compute_pixel_accuracy(main_output, masks)
+                # Compute metrics (convert logits to predictions)
+                preds = torch.argmax(main_output, dim=1)
+                iou = compute_iou(preds, masks, num_classes)
+                accuracy = compute_pixel_accuracy(preds, masks)
                 
                 total_iou += iou
                 total_accuracy += accuracy
