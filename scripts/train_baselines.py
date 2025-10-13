@@ -113,6 +113,10 @@ def set_seed(seed, benchmark_mode=True):
         seed: Random seed to use
         benchmark_mode: If True, enables deterministic operations for reproducible benchmarking
     """
+    # Handle None seed
+    if seed is None:
+        seed = 789
+    
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
