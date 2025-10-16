@@ -314,7 +314,7 @@ class EnhancedDecoderBlock(nn.Module):
         
         return output
 
-class EnhancedGhanaSegNet(nn.Module):
+class GhanaSegNet(nn.Module):
     """
     GhanaSegNet Enhanced: Advanced Multi-Scale Transfer Learning Framework
     
@@ -334,7 +334,7 @@ class EnhancedGhanaSegNet(nn.Module):
     - Optimized regularization and normalization
     """
     def __init__(self, num_classes=6, dropout=0.12):
-        super(EnhancedGhanaSegNet, self).__init__()
+        super(GhanaSegNet, self).__init__()
         
         # EfficientNet-B0 backbone (ImageNet pretrained)
         self.encoder = EfficientNet.from_pretrained('efficientnet-b0')
@@ -549,5 +549,4 @@ class EnhancedGhanaSegNet(nn.Module):
             'bottleneck': list(self.conv1.parameters())
         }
 
-# Backward compatibility alias
-GhanaSegNet = EnhancedGhanaSegNet
+# Class is defined as `GhanaSegNet` for consistency across the codebase

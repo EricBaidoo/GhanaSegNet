@@ -282,7 +282,8 @@ def create_tta_predictor(model, strategy='standard'):
 # Usage example:
 """
 # After training your model
-model = EnhancedGhanaSegNet(num_classes=6)
+# Instantiate the model class (GhanaSegNet) and load checkpoint
+model = GhanaSegNet(num_classes=6)
 model.load_state_dict(torch.load('best_model.pth'))
 
 # Create TTA predictor
