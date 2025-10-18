@@ -140,12 +140,23 @@ def set_seed(seed, benchmark_mode=True):
 
 def train_epoch(model, train_loader, criterion, optimizer, device, epoch, model_name):
     """
-    Train for one epoch. Applies gradient clipping for stability.
+    Train for one epoch. Applies model-specific gradient clipping for stability.
+    Transformer models get stricter clipping to prevent gradient explosions.
     """
     model.train()
     total_loss = 0.0
     total_samples = 0
     pbar = tqdm(train_loader, desc=f"Epoch {epoch} Training [{model_name}]")
+    
+    # Model-specific gradient clipping (transformers need tighter control)
+    grad_clip_norms = {
+        'unet': 5.0,           # CNN models are stable, looser clipping
+        'deeplabv3plus': 5.0,  # ResNet backbone is stable
+        'segformer': 1.0,      # Transformer needs tight clipping
+        'ghanasegnet': 1.0     # Hybrid transformer needs tight clipping
+    }
+    clip_norm = grad_clip_norms.get(model_name.lower(), 1.0)
+    
     for images, masks in pbar:
         images, masks = images.to(device), masks.to(device)
         optimizer.zero_grad()
@@ -161,7 +172,8 @@ def train_epoch(model, train_loader, criterion, optimizer, device, epoch, model_
             loss = criterion(outputs, masks)
         
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        # Apply model-specific gradient clipping
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_norm)
         optimizer.step()
         total_loss += loss.item() * images.size(0)
         total_samples += images.size(0)
@@ -297,16 +309,30 @@ def train_model(model_name, config):
         print(f"⚠️  Using fallback dataset loader (expects data in './data' folder)")
         train_dataset = GhanaFoodDataset('train', target_size=input_size)
         val_dataset = GhanaFoodDataset('val', target_size=input_size)
+    
+    # OPTIMIZATION: Model-specific batch sizes (smaller models can use larger batches)
+    # GhanaSegNet (6.75M params) can use larger batch than DeepLabV3+ (40M params)
+    model_optimal_batch_sizes = {
+        'unet': config['batch_size'],           # 31M params - use default
+        'deeplabv3plus': config['batch_size'],  # 40M params - use default  
+        'segformer': config['batch_size'],      # 3.7M params - could go higher but keep fair
+        'ghanasegnet': config['batch_size']     # 6.75M params - could use 16 but keep fair
+    }
+    optimal_batch_size = model_optimal_batch_sizes.get(model_name.lower(), config['batch_size'])
+    
+    if optimal_batch_size != config['batch_size']:
+        print(f"📦 Using optimal batch size {optimal_batch_size} for {model_name.upper()} (model has fewer parameters)")
+    
     train_loader = DataLoader(
         train_dataset, 
-        batch_size=config['batch_size'], 
+        batch_size=optimal_batch_size, 
         shuffle=True, 
         num_workers=2,
         drop_last=True
     )
     val_loader = DataLoader(
         val_dataset, 
-        batch_size=config['batch_size'], 
+        batch_size=optimal_batch_size, 
         shuffle=False, 
         num_workers=0,
         drop_last=True
@@ -324,10 +350,27 @@ def train_model(model_name, config):
     print(f"Total parameters: {total_params:,}")
     print(f"Trainable parameters: {trainable_params:,}")
 
-    # Optimizer and scheduler (Enhanced for better convergence)
+    # APPROACH 2: Per-Model Optimal Hyperparameters (Research Best Practice)
+    # Different architectures require different learning rates for optimal performance
+    model_optimal_lrs = {
+        'unet': 1e-4,           # CNN-only, can handle higher LR
+        'deeplabv3plus': 1e-4,  # ResNet backbone, stable gradients
+        'segformer': 5e-5,      # Transformer-based, needs lower LR for stability
+        'ghanasegnet': 5e-5     # Hybrid CNN+Transformer, needs lower LR
+    }
+    
+    # Use model-specific optimal LR if available, otherwise use config default
+    optimal_lr = model_optimal_lrs.get(model_name.lower(), config['learning_rate'])
+    
+    if optimal_lr != config['learning_rate']:
+        print(f"📊 ARCHITECTURE-SPECIFIC OPTIMIZATION:")
+        print(f"   Using optimal LR {optimal_lr:.0e} for {model_name.upper()} (vs default {config['learning_rate']:.0e})")
+        print(f"   Justification: {'Transformer' if 'transformer' in model_name.lower() or model_name.lower() == 'ghanasegnet' or model_name.lower() == 'segformer' else 'CNN'}-based architecture")
+
+    # Optimizer with model-specific learning rate
     optimizer = optim.AdamW(
         model.parameters(), 
-        lr=config['learning_rate'], 
+        lr=optimal_lr,  # Use optimal LR per architecture
         weight_decay=config['weight_decay'],
         betas=(0.9, 0.999),  # Slightly adjusted for transformer components
         eps=1e-8
@@ -367,9 +410,16 @@ def train_model(model_name, config):
 
     print(f"Starting enhanced training for {config['epochs']} epochs (with early stopping)...")
     
-    # Warmup for transformer-based models (GhanaSegNet benefits from this)
-    warmup_epochs = min(3, config['epochs'] // 4) if model_name == 'ghanasegnet' else 0
-    base_lr = config['learning_rate']
+    # Warmup for transformer-based models (GhanaSegNet & SegFormer benefit from this)
+    # Longer warmup for models with attention mechanisms
+    transformer_models = ['ghanasegnet', 'segformer']
+    if model_name.lower() in transformer_models:
+        warmup_epochs = min(5, config['epochs'] // 10)  # 5 epochs for 50+ epoch training
+        print(f"🔥 TRANSFORMER WARMUP: {warmup_epochs} epochs for stable attention initialization")
+    else:
+        warmup_epochs = 0
+    
+    base_lr = optimal_lr  # Use the architecture-specific optimal LR
     
     for epoch in range(config['epochs']):
         print(f"\nEpoch {epoch+1}/{config['epochs']} - {model_name.upper()}")
