@@ -31,7 +31,7 @@ from models.segformer import SegFormerB0
 from models.ghanasegnet import GhanaSegNet
 
 # Import utilities
-from data.dataset_loader import GhanaFoodDataset
+from dataloader.dataset_loader import GhanaFoodDataset
 from utils.losses import CombinedLoss
 from utils.metrics import compute_iou, compute_pixel_accuracy
 from utils.optimizers import create_optimized_optimizer_and_scheduler, get_progressive_training_config
