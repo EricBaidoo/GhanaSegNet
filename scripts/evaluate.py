@@ -225,7 +225,7 @@ def main():
     
     global GhanaFoodDataset
     try:
-        from data.dataset_loader import GhanaFoodDataset
+        from dataset_loader import GhanaFoodDataset
         print(f"✓ Successfully imported GhanaFoodDataset from {dataset_path}")
     except ImportError as e:
         print(f"✗ Failed to import GhanaFoodDataset from {dataset_path}")

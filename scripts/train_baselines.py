@@ -545,12 +545,12 @@ def main():
     # Make GhanaFoodDataset available globally for the script
     global GhanaFoodDataset
     try:
-        from data.dataset_loader import GhanaFoodDataset
+        from dataset_loader import GhanaFoodDataset
         print(f"✓ Successfully imported GhanaFoodDataset from {dataset_path}")
     except ImportError as e:
         print(f"✗ Failed to import GhanaFoodDataset from {dataset_path}")
         print(f"  Error: {e}")
-        print(f"  Please ensure {dataset_path}/data/dataset_loader.py exists")
+        print(f"  Please ensure {dataset_path}/dataset_loader.py exists")
         sys.exit(1)
 
     # Handle benchmarking mode
