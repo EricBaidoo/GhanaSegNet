@@ -31,7 +31,7 @@ from models.segformer import SegFormerB0
 from models.ghanasegnet import GhanaSegNet
 
 # Import utilities
-from dataloader.dataset_loader import GhanaFoodDataset
+# Note: GhanaFoodDataset is imported dynamically from dataset path
 from utils.losses import CombinedLoss
 from utils.metrics import compute_iou, compute_pixel_accuracy
 from utils.optimizers import create_optimized_optimizer_and_scheduler, get_progressive_training_config
@@ -535,6 +535,23 @@ def main():
     parser.add_argument('--fast-mode', action='store_true', 
                        help='Disable deterministic ops for faster training (not recommended for benchmarking)')
     args = parser.parse_args()
+    
+    # Import GhanaFoodDataset from dataset path
+    # The dataset on Google Drive contains data/dataset_loader.py
+    dataset_path = args.dataset_path
+    if dataset_path not in sys.path:
+        sys.path.insert(0, dataset_path)
+    
+    # Make GhanaFoodDataset available globally for the script
+    global GhanaFoodDataset
+    try:
+        from data.dataset_loader import GhanaFoodDataset
+        print(f"✓ Successfully imported GhanaFoodDataset from {dataset_path}")
+    except ImportError as e:
+        print(f"✗ Failed to import GhanaFoodDataset from {dataset_path}")
+        print(f"  Error: {e}")
+        print(f"  Please ensure {dataset_path}/data/dataset_loader.py exists")
+        sys.exit(1)
 
     # Handle benchmarking mode
     benchmark_mode = args.benchmark_mode and not args.fast_mode

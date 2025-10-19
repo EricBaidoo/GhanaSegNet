@@ -28,7 +28,7 @@ from models.segformer import SegFormerB0
 from models.ghanasegnet import GhanaSegNet
 
 # Import utilities
-from dataloader.dataset_loader import GhanaFoodDataset
+# Note: GhanaFoodDataset is imported dynamically from dataset path
 from utils.metrics import compute_iou, compute_pixel_accuracy, compute_f1_per_class
 from utils.losses import CombinedLoss
 
@@ -211,8 +211,26 @@ def main():
                        help='Batch size for evaluation (default: 4)')
     parser.add_argument('--num-classes', type=int, default=6,
                        help='Number of classes (default: 6)')
+    parser.add_argument('--dataset-path', type=str, default='data',
+                       help='Path to dataset directory')
     parser.add_argument('--save-predictions', action='store_true',
                        help='Save prediction masks as .npy files')
+    
+    args = parser.parse_args()
+    
+    # Import GhanaFoodDataset from dataset path
+    dataset_path = args.dataset_path
+    if dataset_path not in sys.path:
+        sys.path.insert(0, dataset_path)
+    
+    global GhanaFoodDataset
+    try:
+        from data.dataset_loader import GhanaFoodDataset
+        print(f"✓ Successfully imported GhanaFoodDataset from {dataset_path}")
+    except ImportError as e:
+        print(f"✗ Failed to import GhanaFoodDataset from {dataset_path}")
+        print(f"  Error: {e}")
+        sys.exit(1)
     parser.add_argument('--results-dir', type=str, default='evaluation_results',
                        help='Directory to save results (default: evaluation_results)')
     parser.add_argument('--num-workers', type=int, default=2,
