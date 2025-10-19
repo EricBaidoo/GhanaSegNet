@@ -23,6 +23,8 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm import tqdm
 import random
 import numpy as np
+from torchvision import transforms
+from torchvision.transforms import RandomHorizontalFlip, RandomVerticalFlip, ColorJitter, RandomRotation, RandomResizedCrop
 
 # Import baseline models
 from models.unet import UNet
@@ -164,8 +166,8 @@ def train_epoch(model, train_loader, criterion, optimizer, device, epoch, model_
         
         # Handle auxiliary outputs for enhanced GhanaSegNet
         if model_name == 'ghanasegnet' and isinstance(outputs, tuple):
-            main_outputs, aux_outputs = outputs
-            loss = criterion(main_outputs, masks, aux_outputs)
+            main_outputs, aux_output = outputs
+            loss = criterion(main_outputs, masks, [aux_output])
         else:
             if isinstance(outputs, tuple):
                 outputs = outputs[0]  # Take main output if tuple returned
@@ -197,8 +199,8 @@ def validate_epoch(model, val_loader, criterion, device, epoch, model_name, num_
             
             # Handle auxiliary outputs for enhanced GhanaSegNet validation
             if model_name == 'ghanasegnet' and isinstance(outputs, tuple):
-                main_outputs, aux_outputs = outputs
-                loss = criterion(main_outputs, masks, aux_outputs)
+                main_outputs, aux_output = outputs
+                loss = criterion(main_outputs, masks, [aux_output])
                 preds = torch.argmax(main_outputs, dim=1)
             else:
                 if isinstance(outputs, tuple):
@@ -1003,8 +1005,18 @@ def enhanced_train_model(model_name='ghanasegnet', epochs=15, batch_size=6,
     print(f"   Achieved milestones: {sorted(achieved_milestones)}")
     
     # Save training history
+    import numpy as np
+    def convert_bools(obj):
+        if isinstance(obj, dict):
+            return {k: convert_bools(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_bools(v) for v in obj]
+        elif isinstance(obj, (np.bool_, bool)):
+            return bool(obj)
+        else:
+            return obj
     with open(f'checkpoints/{model_name}/training_history.json', 'w') as f:
-        json.dump(training_history, f, indent=2)
+        json.dump(convert_bools(training_history), f, indent=2)
     
     return {
         'best_val_iou': best_val_iou,
@@ -1013,6 +1025,16 @@ def enhanced_train_model(model_name='ghanasegnet', epochs=15, batch_size=6,
         'achieved_milestones': list(achieved_milestones),
         'target_achieved': best_val_iou >= 0.30
     }
+
+def get_advanced_augmentation(input_size):
+    return transforms.Compose([
+        RandomResizedCrop(input_size, scale=(0.8, 1.0)),
+        RandomHorizontalFlip(),
+        RandomVerticalFlip(),
+        ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+        RandomRotation(degrees=15),
+        transforms.ToTensor(),
+    ])
 
 if __name__ == "__main__":
     main()
