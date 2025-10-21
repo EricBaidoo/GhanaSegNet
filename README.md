@@ -66,13 +66,17 @@ python run_clean_benchmarking.py
 
 ## 🔬 Model Comparison
 
-| Model | Parameters | mIoU (%) | Architecture | Key Features |
-|-------|-----------|----------|--------------|--------------|
-| **GhanaSegNet V2** | 12.7M | **68.45** | CNN-Transformer | Cultural attention, Multi-scale fusion |
-| **GhanaSegNet V1** | 11.8M | **67.23** | CNN-Transformer | Food-aware loss, Efficient backbone |
-| SegFormer-B0 | 3.7M | 65.12 | Pure Transformer | Lightweight, Fast inference |
-| DeepLabV3+ | 39.6M | 64.89 | CNN + ASPP | Atrous convolutions, ResNet-50 |
-| U-Net | 31.2M | 63.45 | CNN | Skip connections, Classic architecture |
+| Model         | Parameters   | Best IoU   | Architecture      | Key Features                       |
+|-------------- |------------ |----------- |------------------|------------------------------------|
+| GhanaSegNet   | 6,754,261   | 0.2447     | CNN-Transformer  | Cultural attention, Multi-scale fusion |
+| DeepLabV3+    | 40,347,814  | 0.2544     | CNN + ASPP       | Atrous convolutions, ResNet-50     |
+| SegFormer     | 3,715,686   | 0.2437     | Pure Transformer | Lightweight, Fast inference        |
+| U-Net         | 31,032,070  | 0.2437     | CNN              | Skip connections, Classic architecture |
+
+### **GhanaSegNet: CNN-Transformer Hybrid**
+- **Architecture**: Multi-scale feature fusion + Cultural context attention
+- **Innovation**: Transformer blocks with cultural pattern recognition
+- **Performance**: 0.2447 IoU with 6.75M parameters
 
 ### � Advanced Analysis & Visualization
 
