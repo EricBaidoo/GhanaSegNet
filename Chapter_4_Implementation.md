@@ -8,6 +8,42 @@ The architectural implementation is grounded in theoretical foundations from bot
 
 This chapter elucidates the technical decisions, algorithmic innovations, and engineering solutions that enable GhanaSegNet to achieve state-of-the-art performance while maintaining the computational efficiency required for mobile health applications in resource-constrained environments. The implementation framework serves as both a research contribution and a practical foundation for automated nutritional assessment systems in developing nations.
 
+## 4.1 Initial Model Evaluation
+
+Purpose: Report the first evaluation of the implemented GhanaSegNet model (baseline run), provide reproducible commands to reproduce the short validation run, and summarize the initial metrics used to guide subsequent hyperparameter decisions.
+
+Setup and assumptions:
+- Dataset: FRANI (939 train / 202 val) prepared as described in Chapter 3.
+- Model: `models/ghanasegnet.py` configured for C=6 classes.
+- Environment: CUDA-enabled GPU (recommended) or Colab T4 for rapid iteration.
+
+Initial (baseline) run summary (epoch 1 reported values from run JSON):
+
+| Metric | Value |
+|--------|-------|
+| Validation mIoU | 0.2437 (24.37%) |
+| Validation pixel accuracy | 0.7832 (78.32%) |
+| Training loss (epoch 1 end) | 2.3107 |
+| Validation loss (epoch 1) | 2.4208 |
+
+Reproducible quick-run (PowerShell):
+
+```powershell
+# run a short 5-10 epoch baseline to reproduce reported metrics (writes artifacts to checkpoints/ghanasegnet/)
+python scripts\train_baselines.py --model ghanasegnet --epochs 5 --batch-size 8 --checkpoint-dir checkpoints/ghanasegnet --seed 789
+
+# evaluate a saved checkpoint on validation split
+python scripts\evaluate.py --model ghanasegnet --checkpoint checkpoints/ghanasegnet/best_model.pth --split val
+```
+
+Figure/Table placeholders:
+- Table 4.1: Baseline run hyperparameters and checkpoint metadata (link to `checkpoints/ghanasegnet/run_*.json`).
+- Figure 4.1: Training and validation curves (loss, mIoU) for the baseline run.
+
+Notes:
+- These initial metrics were used to tune loss weighting and schedule further ablation studies described in Chapter 5.
+- The run JSON and per-epoch metrics are available in `checkpoints/ghanasegnet/` and should be attached to any future reproduction attempts.
+
 ## 4.2 Theoretical Foundations and Design Principles
 
 ### 4.2.1 Hybrid Architecture Theoretical Framework
@@ -54,11 +90,11 @@ where $\alpha + \beta + \gamma = 1$ and weights are optimized for food segmentat
 The GhanaSegNet implementation leverages a carefully curated technology ecosystem that balances cutting-edge capabilities with production stability. The architecture follows microservices principles, enabling independent scaling and maintenance of different system components.
 
 **Core Deep Learning Infrastructure:**
-- **PyTorch 2.8.0:** Primary framework chosen for dynamic computational graphs and superior debugging capabilities
-- **TorchVision 0.23.0:** Provides optimized computer vision operations and pre-trained model zoo
-- **EfficientNet-PyTorch 0.7.1:** Specialized implementation for EfficientNet architectures with mobile optimization
-- **Transformers 4.56.1:** Hugging Face library for state-of-the-art transformer implementations
-- **CUDA 12.0+ Support:** GPU acceleration with automatic mixed precision training
+- **PyTorch:** Primary framework chosen for dynamic computational graphs and superior debugging capabilities — use a version compatible with your CUDA/runtime; see `requirements.txt` for guidance.
+- **TorchVision:** Provides optimized computer vision operations and pre-trained model zoo; choose the matching version for the installed PyTorch.
+- **EfficientNet / timm:** Use `timm` or `efficientnet-pytorch` as listed in `requirements.txt` for backbone implementations.
+- **Transformers (optional):** Hugging Face utilities for transformer components; only required if you use HF transformer modules.
+- **CUDA / cuDNN:** GPU acceleration with automatic mixed precision training; ensure CUDA toolkit and drivers align with the installed PyTorch wheel.
 
 **Advanced Data Processing Pipeline:**
 - **Albumentations 1.3.0:** Industry-standard augmentation library with food-specific transformations
@@ -77,217 +113,213 @@ The GhanaSegNet implementation leverages a carefully curated technology ecosyste
 ### 4.3.2 Advanced Project Architecture and Design Patterns
 
 The implementation follows Domain-Driven Design (DDD) principles with clear separation of concerns and dependency injection patterns:
+# Chapter 4: Implementation and System Architecture
 
-```
-GhanaSegNet/
-├── core/                           # Core business logic
-│   ├── models/                     # Domain models and entities
-│   │   ├── architectures/         # Neural network architectures
-│   │   │   ├── ghanasegnet.py    # Primary hybrid CNN-Transformer
-│   │   │   ├── backbones/        # Encoder implementations
-│   │   │   │   ├── efficientnet.py
-│   │   │   │   └── resnet.py
-│   │   │   ├── decoders/         # Decoder implementations
-│   │   │   │   ├── unet_decoder.py
-│   │   │   │   └── fpn_decoder.py
-│   │   │   └── attention/        # Attention mechanisms
-│   │   │       ├── transformer_blocks.py
-│   │   │       └── channel_attention.py
-│   │   ├── baselines/             # Baseline implementations
-│   │   │   ├── unet.py           # U-Net (Ronneberger et al., 2015)
-│   │   │   ├── deeplabv3plus.py  # DeepLabV3+ (Chen et al., 2018)
-│   │   │   └── segformer.py      # SegFormer (Xie et al., 2021)
-│   │   └── factories/            # Factory patterns for model creation
-│   │       └── model_factory.py
-│   ├── losses/                    # Loss function implementations
-│   │   ├── base_loss.py          # Abstract base loss interface
-│   │   ├── dice_loss.py          # Dice coefficient loss
-│   │   ├── boundary_loss.py      # Boundary-aware loss
-│   │   ├── focal_loss.py         # Focal loss for hard examples
-│   │   └── combined_loss.py      # Multi-component food-aware loss
-│   ├── metrics/                   # Evaluation metrics
-│   │   ├── segmentation_metrics.py
-│   │   ├── boundary_metrics.py
-│   │   └── efficiency_metrics.py
-│   └── optimizers/               # Custom optimization strategies
-│       ├── schedulers.py         # Learning rate scheduling
-│       └── gradient_processing.py
-├── infrastructure/                # Infrastructure and I/O
-│   ├── data/                     # Data layer implementations
-│   │   ├── datasets/            # Dataset implementations
-│   │   │   ├── ghana_food_dataset.py
-│   │   │   ├── augmentation_pipeline.py
-│   │   │   └── data_validators.py
-│   │   ├── loaders/             # Data loading strategies
-│   │   │   ├── distributed_loader.py
-│   │   │   └── memory_efficient_loader.py
-│   │   └── preprocessing/       # Data preprocessing
-│   │       ├── normalization.py
-│   │       ├── resizing.py
-│   │       └── quality_assessment.py
-│   ├── training/                # Training infrastructure
-│   │   ├── trainers/           # Training loop implementations
-│   │   │   ├── base_trainer.py
-│   │   │   ├── single_gpu_trainer.py
-│   │   │   └── distributed_trainer.py
-│   │   ├── callbacks/          # Training callbacks
-│   │   │   ├── early_stopping.py
-│   │   │   ├── model_checkpoint.py
-│   │   │   └── learning_rate_monitor.py
-│   │   └── logging/           # Experiment logging
-│   │       ├── tensorboard_logger.py
-│   │       └── wandb_logger.py
-│   ├── evaluation/              # Evaluation framework
-│   │   ├── evaluators/         # Model evaluation strategies
-│   │   ├── benchmark_suite.py  # Comprehensive benchmarking
-│   │   └── statistical_analysis.py
-│   └── deployment/             # Deployment utilities
-│       ├── model_optimization/ # Model compression and optimization
-│       │   ├── quantization.py
-│       │   ├── pruning.py
-│       │   └── knowledge_distillation.py
-│       ├── inference/         # Inference engines
-│       │   ├── batch_inference.py
-│       │   ├── realtime_inference.py
-│       │   └── mobile_inference.py
-│       └── serving/          # Model serving
-│           ├── rest_api.py
-│           └── grpc_service.py
-├── applications/               # Application layer
-│   ├── cli/                   # Command-line interfaces
-│   │   ├── train.py          # Training CLI
-│   │   ├── evaluate.py       # Evaluation CLI
-│   │   └── infer.py         # Inference CLI
-│   ├── notebooks/            # Research notebooks
-│   │   ├── exploratory_analysis.ipynb
-│   │   ├── model_comparison.ipynb
-│   │   └── results_visualization.ipynb
-│   └── web/                  # Web applications
-│       ├── dashboard/        # Monitoring dashboard
-│       └── demo/            # Interactive demonstration
-├── tests/                     # Comprehensive testing suite
-│   ├── unit/                 # Unit tests
-│   ├── integration/          # Integration tests
-│   ├── performance/          # Performance benchmarks
-│   └── end_to_end/          # End-to-end validation
-├── configs/                   # Configuration management
-│   ├── models/               # Model configurations
-│   ├── training/            # Training configurations
-│   ├── deployment/          # Deployment configurations
-│   └── environments/        # Environment-specific configs
-└── docs/                     # Documentation
-    ├── api/                 # API documentation
-    ├── tutorials/           # User tutorials
-    └── development/         # Development guides
+## 4.1 Introduction
+
+This chapter describes the concrete implementation of GhanaSegNet and the surrounding engineering that makes experiments reproducible, auditable, and deployable. It documents the software layout, model internals, training pipeline, evaluation procedures, and deployment pathways. The goal is to provide enough detail for a reader with access to the FRANI dataset and a CUDA-enabled GPU to reproduce the presented results and extend the work.
+
+## 4.1 Initial Model Evaluation
+
+Purpose: Report the first evaluation of the implemented GhanaSegNet model (baseline run), provide reproducible commands to reproduce the short validation run, and summarize the initial metrics used to guide subsequent hyperparameter decisions.
+
+Setup and assumptions:
+- Dataset: FRANI (939 train / 202 val) prepared as described in Chapter 3.
+- Model: `models/ghanasegnet.py` configured for C=6 classes.
+- Environment: CUDA-enabled GPU (recommended) or Colab T4 for rapid iteration.
+
+Initial (baseline) run summary (epoch 1 reported values from run JSON):
+
+| Metric | Value |
+|--------|-------|
+| Validation mIoU | 0.2437 (24.37%) |
+| Validation pixel accuracy | 0.7832 (78.32%) |
+| Training loss (epoch 1 end) | 2.3107 |
+| Validation loss (epoch 1) | 2.4208 |
+
+Reproducible quick-run (PowerShell):
+
+```powershell
+# run a short 5-10 epoch baseline to reproduce reported metrics (writes artifacts to checkpoints/ghanasegnet/)
+python scripts\train_baselines.py --model ghanasegnet --epochs 5 --batch-size 8 --checkpoint-dir checkpoints/ghanasegnet --seed 789
+
+# evaluate a saved checkpoint on validation split
+python scripts\evaluate.py --model ghanasegnet --checkpoint checkpoints/ghanasegnet/best_model.pth --split val
 ```
 
-### 4.3.3 Development Environment and DevOps Integration
+Figure/Table placeholders:
+- Table 4.1: Baseline run hyperparameters and checkpoint metadata (link to `checkpoints/ghanasegnet/run_*.json`).
+- Figure 4.1: Training and validation curves (loss, mIoU) for the baseline run.
 
-**Container-Based Development:**
-```dockerfile
-# Multi-stage Dockerfile for development and production
-FROM pytorch/pytorch:2.8.0-cuda12.0-devel as development
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-COPY . .
-EXPOSE 8080
+Notes:
+- These initial metrics were used to tune loss weighting and schedule further ablation studies described in Chapter 5.
+- The run JSON and per-epoch metrics are available in `checkpoints/ghanasegnet/` and should be attached to any future reproduction attempts.
 
-FROM development as production
-RUN python -m torch.utils.model_zoo optimize_for_mobile
-CMD ["python", "applications/cli/serve.py"]
-```
+## 4.2 Theoretical Foundations and Design Principles
 
-```
+The GhanaSegNet design follows several guiding principles: efficiency for mobile/edge deployment, cultural sensitivity to Ghanaian food presentation, and modularity for extensibility.
 
-**Continuous Integration/Continuous Deployment (CI/CD):**
-```yaml
-# GitHub Actions workflow
-name: GhanaSegNet CI/CD
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [3.8, 3.9, 3.10]
-        pytorch-version: [1.13, 2.0, 2.8]
-    steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python
-        uses: actions/setup-python@v3
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install dependencies
-        run: |
-          pip install torch==${{ matrix.pytorch-version }}
-          pip install -r requirements.txt
-      - name: Run tests
-        run: pytest tests/ --cov=core --cov-report=xml
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
-```
+### 4.2.1 Hybrid architecture formalization
 
-## 4.4 Advanced GhanaSegNet Architecture Implementation
+We model the segmentation pipeline as:
 
-### 4.4.1 Mathematical Foundations and Computational Graph
-
-The GhanaSegNet architecture implements a sophisticated computational graph that optimally combines convolutional feature extraction with transformer-based global attention mechanisms. The implementation leverages PyTorch's dynamic graph capabilities to enable flexible computation paths based on input characteristics.
-
-**Core Architecture Equation:**
-$$\mathbf{Y} = \mathcal{D}(\mathcal{T}_2(\mathcal{T}_1(\mathcal{E}(\mathbf{X}))))$$
+$$\mathbf{Y} = \mathcal{D}(\mathcal{T}(\mathcal{E}(\mathbf{X}))))$$
 
 where:
-- $\mathbf{X} \in \mathbb{R}^{B \times 3 \times H \times W}$ represents the input batch
-- $\mathcal{E}$: EfficientNet-B0 encoder with feature pyramid extraction
-- $\mathcal{T}_1, \mathcal{T}_2$: Dual transformer blocks with learnable scaling
-- $\mathcal{D}$: Enhanced U-Net decoder with weighted skip connections
-- $\mathbf{Y} \in \mathbb{R}^{B \times C \times H \times W}$ represents the segmentation output
+- $\mathbf{X} \in \mathbb{R}^{B\times3\times H \times W}$ is the input batch,
+- $\mathcal{E}$ is the CNN encoder (EfficientNet-derived),
+- $\mathcal{T}$ is a lightweight transformer bottleneck (or cascade of bottlenecks),
+- $\mathcal{D}$ is the decoder producing per-pixel logits $\mathbf{Y} \in \mathbb{R}^{B\times C \times H \times W}$.
 
-**Implementation Architecture:**
+The objective is to minimize a combined loss (Chapter 3):
+
+$$\mathcal{L} = \alpha \mathcal{L}_{Dice} + \beta \mathcal{L}_{Boundary} + \gamma \mathcal{L}_{Focal}$$
+
+with weights selected via cross-validation.
+
+### 4.2.2 Design trade-offs
+
+- Transformer capacity vs. latency: we limit transformer token counts via 1×1 conv reductions at the bottleneck to keep inference latency reasonable on GPU and mobile.
+- Decoder complexity vs. boundary precision: learnable skip-adapters preserve high-resolution cues while keeping parameter counts moderate.
+
+## 4.3 Software architecture and development environment
+
+### 4.3.1 Repository layout
+
+Key directories and their purpose:
+
+- `models/` — model implementations (`ghanasegnet.py`, `unet.py`, `deeplabv3plus.py`, `segformer_b0.py`).
+- `scripts/` — training and evaluation entry points (`train_baselines.py`, `evaluate.py`, `test.py`).
+- `infrastructure/` — data loaders, augmentation pipelines, validators.
+- `utils/` — `losses.py`, `metrics.py`, and helper utilities.
+- `checkpoints/` — run outputs, checkpoints, JSON summaries.
+- `notebooks/` — experimental notebooks for visualization and analysis.
+
+### 4.3.2 Dependencies and environment
+
+- Use `requirements.txt` for reproducible Python dependencies. Prefer creating an isolated venv or using the provided Dockerfile for production-like runs.
+- Recommended Python runtime: 3.8–3.10. Use a PyTorch wheel that matches your CUDA driver (see README).
+
+### 4.3.3 DevOps / CI suggestions
+
+- Basic GitHub Actions workflow is included to run tests across Python/PyTorch matrix. Keep the test matrix minimal to reduce CI costs; run full experiments outside CI (Colab or dedicated GPU nodes).
+
+## 4.4 Detailed model implementation
+
+This subsection maps the algorithmic design to the concrete implementation in `models/ghanasegnet.py`. The aim is to make the reader understand how tensor shapes flow through the network and where to edit for further experiments.
+
+### 4.4.1 Component overview
+
+- Encoder ($\\mathcal{E}$): EfficientNet-derived backbone producing hierarchical features at multiple scales: $F_1, F_2, F_3, F_4$.
+- Bottleneck / Transformers ($\\mathcal{T}$): 1×1 conv reduces channels to a compact token dimension; a small stack of transformer blocks (self-attention + MLP) injects global context.
+- Decoder ($\\mathcal{D}$): Food-aware decoder that upsamples the bottleneck while fusing skip features via learned adapters and channel attention.
+- Skip adapters: lightweight 1×1 convs that align channel dimensions for skip fusion.
+
+### 4.4.2 Tensor shapes (working example, input 384×384)
+
+| Stage | Tensor shape (B=1 example) | Notes |
+|-------|-----------------------------|-------|
+| Input | [1, 3, 384, 384] | Raw RGB image |
+| Encoder output (richest) | [1, 1280, 12, 12] | after downsampling in EfficientNet |
+| Feature processor | [1, 256, 12, 12] | 1×1 conv reductions |
+| Transformer tokens | [1, 256, 144] | flattened tokens = 12×12 |
+| Decoder output logits | [1, C, 384, 384] | upsampled to input size |
+
+### 4.4.3 Forward pass (concise pseudo-code)
 
 ```python
-class GhanaSegNet(nn.Module):
-    """
-    Advanced hybrid CNN-Transformer architecture for food segmentation
-    
-    Theoretical Foundation:
-    - Combines local texture understanding (CNN) with global context (Transformer)
-    - Implements learnable feature fusion with adaptive scaling parameters
-    - Optimized for food boundary detection through multi-scale attention
-    
-    Architecture Innovation:
-    - Dual transformer bottleneck for enhanced global reasoning
-    - Weighted skip connections with learnable fusion coefficients
-    - Food-aware channel attention for texture discrimination
-    """
-    
-    def __init__(self, num_classes=6, dropout=0.1, backbone_name='efficientnet-b0'):
-        super(GhanaSegNet, self).__init__()
-        
-        # Theoretical motivation: EfficientNet provides optimal efficiency-accuracy trade-off
-        # for mobile deployment while maintaining rich feature representations
-        self.encoder = EfficientNet.from_pretrained(backbone_name)
-        self.backbone_name = backbone_name
-        
-        # Advanced feature processing with theoretical grounding
-        # Channel reduction follows information bottleneck principle (Tishby & Zaslavsky, 2015)
-        self.feature_processor = nn.Sequential(
-            nn.Conv2d(1280, 512, kernel_size=1, bias=False),
-            nn.BatchNorm2d(512),
-            nn.ReLU(inplace=True),
-            nn.Dropout2d(dropout),
-            nn.Conv2d(512, 256, kernel_size=1, bias=False),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.Dropout2d(dropout)
-        )
-        
-        # Dual transformer blocks with learnable scaling (innovative contribution)
-        # Theoretical basis: Multiple attention heads capture different semantic relationships
-        self.transformer1 = TransformerBlock(
-            dim=256, 
-            heads=8, 
+def forward(self, x):
+    # x: [B, 3, H, W]
+    skips = self.encoder.extract_skips(x)  # list of multi-scale features
+    bottleneck = self.feature_processor(skips[-1])  # [B, 256, h, w]
+    tokens = bottleneck.flatten(2).permute(0, 2, 1)  # [B, N, D]
+    tokens = self.transformer(tokens)
+    bottleneck = tokens.permute(0, 2, 1).view_as(bottleneck)
+    out = self.decoder(bottleneck, skips[:-1])
+    return out  # [B, C, H, W]
+```
+
+(Refer to `models/ghanasegnet.py` for the full implementation.)
+
+### 4.4.4 Parameter counts and performance
+
+- Reported parameter count for the GhanaSegNet variant used in experiments: ~6.8M (check `scripts/compute_model_size.py` if present).
+- FLOPs estimates are sensitive to input size; use `ptflops` or `fvcore` profiling utilities for precise measurements per variant.
+
+## 4.5 Training pipeline and utilities
+
+This section documents `scripts/train_baselines.py` and related utilities that implement data loading, training loop, logging, and checkpointing.
+
+### 4.5.1 Data loading and augmentation
+
+- Datasets are implemented under `infrastructure/data/datasets/ghana_food_dataset.py` and use Albumentations for online augmentation.
+- Progressive resizing and augmentation schedules are implemented in the training script and the augmentation pipeline; verify the schedule via CLI flags.
+
+### 4.5.2 Losses, optimizer and schedulers
+
+- Loss composition is defined in `utils/losses.py` and constructed per-run in the training script.
+- Optimizer: AdamW; Scheduler: cosine annealing or CosineAnnealingWarmRestarts for long runs.
+- Gradient clipping and mixed-precision (AMP) are supported; enable AMP with the `--use-amp` flag.
+
+### 4.5.3 Checkpointing and logging
+
+- Checkpoints: periodic saving and best-model-by-mIoU saving into `checkpoints/ghanasegnet/`.
+- Logging: per-epoch metrics are written to a `run_summary.json` and optionally to Weights & Biases if `--use-wandb` is enabled.
+
+### 4.5.4 Example training command
+
+```powershell
+python scripts\\train_baselines.py --model ghanasegnet --epochs 100 --batch-size 8 --lr 1e-4 --checkpoint-dir checkpoints/ghanasegnet --use-amp --seed 789
+```
+
+## 4.6 Evaluation, inference and visualization
+
+### 4.6.1 Evaluation protocol
+
+- Convert logits to predicted masks via argmax before passing to IoU/Dice metric functions to avoid shape/type mismatches.
+- Compute per-class IoU, mean IoU, Dice, pixel accuracy, and boundary F1.
+
+### 4.6.2 Inference utilities
+
+- `scripts/test.py` performs single-image inference and saves visualizations to `outputs/`.
+- Post-processing: optional CRF or morphological smoothing can be applied to refine predictions; these steps are parameterized in `scripts/test.py`.
+
+### 4.6.3 Visualization
+
+- Notebooks under `notebooks/` contain code to plot training curves, per-class performance heatmaps, and qualitative comparisons across models.
+
+## 4.7 Deployment and optimization
+
+### 4.7.1 Model export and mobile inference
+
+- Export formats: TorchScript and ONNX are supported for deployment. Optimize models using PyTorch Mobile tools or ONNX Runtime for mobile/edge.
+- Quantization: post-training dynamic quantization or quantization-aware training are available in the `deployment/model_optimization/` utilities.
+
+### 4.7.2 Edge considerations
+
+- For mobile deployment prefer EfficientNet-lite backbones and smaller decoder variants; profile memory and latency on target devices.
+
+## 4.8 Reproducibility, testing, and CI
+
+### 4.8.1 Reproducibility
+
+- Save run metadata (seed, hyperparameters) in `checkpoints/` alongside checkpoints.
+- Use deterministic settings where possible and document the environment (Python, PyTorch, CUDA versions).
+
+### 4.8.2 Tests and CI
+
+- The `tests/` directory contains smoke tests: import tests, small training loop tests, and evaluation checks. Run them locally via `pytest tests/`.
+- CI should run linting and these smoke tests; avoid running full training in CI.
+
+## 4.9 Implementation limitations and engineering notes
+
+- Import chain issues: large imports like `torchvision` may cause long import times; prefer isolated environments or container images to avoid accidental blocking.
+- Determinism: AMP and certain CUDA ops may be nondeterministic; use `--benchmark-mode` and fixed seeds for better reproducibility but expect small numerical differences.
+- Memory hotspots: transformer tokenization and high input resolutions require careful batch sizing; prefer progressive resizing when GPU memory is constrained.
+
+## 4.10 Chapter summary
+
+This chapter documented the end-to-end implementation of GhanaSegNet: the theoretical grounding, concrete model design, training pipeline, evaluation protocols, deployment options, and reproducibility practices. The design choices prioritize a balance between performance and deployability for nutrition-assessment applications. Chapter 5 presents experiments, ablation studies, and quantitative results that validate these choices.
             mlp_dim=512, 
             dropout=dropout,
             use_learnable_scaling=True
