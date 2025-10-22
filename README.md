@@ -9,6 +9,23 @@
 
 ## 🚀 Quick Start
 
+### Comprehensive Analysis Notebook
+
+For in-depth benchmarking, visualization, and thesis-ready reporting, use our new notebook:
+
+**[Comprehensive_Segmentation_Model_Thesis_Analysis.ipynb](analysis/Comprehensive_Segmentation_Model_Thesis_Analysis.ipynb)**
+
+- Step-by-step workflow for uploading results, running analysis, and interpreting outputs
+- Includes bar charts, line charts, image grids, boxplots, scatter plots, and confusion matrices
+- Each visualization is followed by a concise explanation for academic clarity
+- Designed for master's and PhD-level research reporting
+
+#### How to Use
+1. Open the notebook in Jupyter or Colab
+2. Upload your model result JSON files when prompted
+3. Run each cell sequentially to generate metrics, plots, and visual summaries
+4. Read interpretation cells for guidance on analysis and reporting
+
 ### Google Colab (Recommended)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EricBaidoo/GhanaSegNet/blob/main/GhanaSegNet_Colab.ipynb)
 
@@ -49,15 +66,30 @@ python run_clean_benchmarking.py
 
 ## 🔬 Model Comparison
 
-| Model | Parameters | mIoU (%) | Architecture | Key Features |
-|-------|-----------|----------|--------------|--------------|
-| **GhanaSegNet V2** | 12.7M | **68.45** | CNN-Transformer | Cultural attention, Multi-scale fusion |
-| **GhanaSegNet V1** | 11.8M | **67.23** | CNN-Transformer | Food-aware loss, Efficient backbone |
-| SegFormer-B0 | 3.7M | 65.12 | Pure Transformer | Lightweight, Fast inference |
-| DeepLabV3+ | 39.6M | 64.89 | CNN + ASPP | Atrous convolutions, ResNet-50 |
-| U-Net | 31.2M | 63.45 | CNN | Skip connections, Classic architecture |
+| Model         | Parameters   | Best IoU   | Architecture      | Key Features                       |
+|-------------- |------------ |----------- |------------------|------------------------------------|
+| GhanaSegNet   | 6,754,261   | 0.2447     | CNN-Transformer  | Cultural attention, Multi-scale fusion |
+| DeepLabV3+    | 40,347,814  | 0.2544     | CNN + ASPP       | Atrous convolutions, ResNet-50     |
+| SegFormer     | 3,715,686   | 0.2437     | Pure Transformer | Lightweight, Fast inference        |
+| U-Net         | 31,032,070  | 0.2437     | CNN              | Skip connections, Classic architecture |
 
-## 📁 Project Structure
+### **GhanaSegNet: CNN-Transformer Hybrid**
+- **Architecture**: Multi-scale feature fusion + Cultural context attention
+- **Innovation**: Transformer blocks with cultural pattern recognition
+- **Performance**: 0.2447 IoU with 6.75M parameters
+
+### � Advanced Analysis & Visualization
+
+Our analysis notebook provides:
+- **Quantitative metrics table**: Compare IoU, accuracy, loss, parameters, training time, and inference speed
+- **Bar charts**: Visualize final metrics and resource usage
+- **Line charts**: Show training/validation curves for each model
+- **Image grids**: Qualitative comparison of sample predictions
+- **Boxplots & scatter plots**: Assess model robustness and trade-offs
+- **Confusion matrix**: Evaluate class-wise segmentation (if available)
+- **Interpretation cells**: Guidance under each visualization for academic reporting
+
+## �📁 Project Structure
 
 ```
 GhanaSegNet/
@@ -170,12 +202,15 @@ python scripts/train_baselines.py --model segformer --epochs 15
 
 ## 📊 Evaluation & Analysis
 
-### Automated Results Analysis
-Training automatically generates:
+### Automated Results Analysis & Visualization
+Training and analysis notebooks automatically generate:
 - **Performance metrics**: mIoU, pixel accuracy, per-class F1 scores
-- **Training curves**: Loss and IoU progression over epochs  
-- **Model comparison**: Side-by-side performance analysis
-- **Efficiency analysis**: Parameters vs performance trade-offs
+- **Training curves**: Loss and IoU progression over epochs
+- **Model comparison**: Side-by-side performance analysis with bar/line charts
+- **Efficiency analysis**: Parameters vs performance trade-offs (scatter plots)
+- **Qualitative results**: Image grids for visual inspection
+- **Statistical summaries**: Confidence intervals, best/worst model ranking
+- **Interpretation cells**: Academic guidance for each visualization
 
 ### Manual Evaluation
 ```bash
