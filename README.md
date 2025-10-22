@@ -82,7 +82,17 @@ GhanaSegNet/
 └── requirements.txt                # Dependencies
 ```
 
-## 🔧 Installation & Requirements
+## � Chapters
+
+This repository includes the written report chapters used in the project. See the files below for methodology, implementation details, and experimental results:
+
+- [Chapter 3 — Methodology](Chapter_3_Methodology.md)
+- [Chapter 4 — Implementation](Chapter_4_Implementation.md)
+- [Chapter 5 — Results & Discussion](Chapter_5_Results.md)
+
+For reproducible experiments and run logs, check the `checkpoints/ghanasegnet/` directory.
+
+## �🔧 Installation & Requirements
 
 ### Dependencies
 ```bash
