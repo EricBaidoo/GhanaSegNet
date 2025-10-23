@@ -35,10 +35,7 @@ Figure 4.1 shows the training and validation curves for the GhanaSegNet runs use
 
 ## 4.3 Qualitative Results
 
-Qualitative evaluation complements the numerical metrics above. Figure 4.2 (saved as `figures/figure4_2_qualitative_grid.png` or produced by `analysis/create_figures_pipeline.py`) presents a representative grid of input images, ground-truth masks, and GhanaSegNet predictions.
-
-![Figure 4.2: Example segmentation outputs](figures/figure4_2_qualitative_grid.png)
-*Figure 4.2: Example input images, ground truth masks, and GhanaSegNet predictions (columns: input / ground truth / prediction).*
+Qualitative evaluation complements the numerical metrics above. Representative image grids of inputs, ground-truth masks, and predictions can be produced using the repository's figure-generation scripts; image grids are omitted from this draft.
 
 Observed strengths:
 - Accurate coarse segmentation of large, visually distinct classes (e.g., staples vs sauces).

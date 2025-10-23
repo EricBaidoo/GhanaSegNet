@@ -2,8 +2,8 @@
 
 ![Figure 3.1: GhanaSegNet pipeline overview](figures/figure3_1_pipeline.png)
 
-<!-- PlantUML: Pipeline/Workflow Diagram -->
-![Figure 3.A: Segmentation pipeline workflow](diagrams/pipeline_activity_diagram.puml)
+<!-- Rendered pipeline diagram -->
+![Figure 3.A: Segmentation pipeline workflow](figures/pipeline_activity_diagram.png)
 *Figure 3.A: Overall segmentation pipeline workflow.*
 
 This chapter describes the full methodology used to develop, train, and evaluate GhanaSegNet. It specifies the experimental contract, the proposed multi-stage training strategy, model design, loss functions, training protocol, data processing, reproducibility practices, and ethical considerations. The goal is to provide a clear, reproducible recipe so readers can reproduce the reported experiments or adapt the pipeline to related tasks.
@@ -39,8 +39,8 @@ This section details the specific choices made in data handling, network archite
 
 ![Figure 3.2: Example dataset samples (input image and mask)](figures/figure3_2_dataset_samples.png)
 
-<!-- PlantUML: Data Preprocessing Diagram -->
-![Figure 3.B: Data preprocessing steps](diagrams/data_preprocessing_diagram.puml)
+<!-- Rendered data preprocessing diagram -->
+![Figure 3.B: Data preprocessing steps](figures/data_preprocessing_diagram.png)
 *Figure 3.B: Data preprocessing steps for segmentation.*
 
 Dataset: FRANI (1,141 labelled images; split used in experiments: 939 train / 202 validation). The dataset contains six semantic classes representative of common Ghanaian dishes and accompanying components.
@@ -75,8 +75,8 @@ Practical recipe:
 
 ![Figure 3.3: GhanaSegNet architecture schematic](figures/figure3_3_architecture.png)
 
-<!-- PlantUML: Model Architecture Diagram -->
-![Figure 3.C: GhanaSegNet model architecture](diagrams/model_class_diagram.puml)
+<!-- Rendered model architecture diagram -->
+![Figure 3.C: GhanaSegNet model architecture](figures/model_class_diagram.png)
 *Figure 3.C: GhanaSegNet model architecture.*
 
 Design goals: achieve accurate boundary delineation and robust class discrimination while keeping the model compact for practical deployment.
@@ -92,8 +92,8 @@ Implementation notes:
 
 ### 3.2.4 Loss Function
 
-<!-- PlantUML: Loss & Metrics Calculation Diagram -->
-![Figure 3.D: Loss and metrics calculation](diagrams/loss_metrics_block_diagram.puml)
+<!-- Rendered loss & metrics diagram -->
+![Figure 3.D: Loss and metrics calculation](figures/loss_metrics_block_diagram.png)
 *Figure 3.D: Loss and metrics calculation process.*
 
 Composite objective used in experiments:
@@ -107,8 +107,8 @@ Typical weights in reported runs: α = 0.6, β = 0.4, γ = 0.0 (adjusted dependi
 
 ### 3.2.5 Training Protocol
 
-<!-- PlantUML: Training Sequence Diagram -->
-![Figure 3.E: Training and evaluation workflow](diagrams/training_sequence_diagram.puml)
+<!-- Rendered training sequence diagram -->
+![Figure 3.E: Training and evaluation workflow](figures/training_sequence_diagram.png)
 *Figure 3.E: Training and evaluation workflow.*
 
 Optimizer & scheduling:
@@ -130,8 +130,8 @@ Checkpointing & artifacts:
 
 ### 3.2.6 Evaluation & Analysis
 
-<!-- PlantUML: Experiment Setup Diagram -->
-![Figure 3.F: Experimental setup and comparison workflow](diagrams/experiment_setup_diagram.puml)
+<!-- Rendered experiment setup diagram -->
+![Figure 3.F: Experimental setup and comparison workflow](figures/experiment_setup_diagram.png)
 *Figure 3.F: Experimental setup and comparison workflow.*
 
 ![Figure 3.4: Training/validation curves and qualitative image grid](figures/figure3_4_training_curves.png)
