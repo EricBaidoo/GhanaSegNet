@@ -1,0 +1,17 @@
+@startuml
+class GhanaSegNet {
+  +forward()
+  +train()
+  +evaluate()
+}
+class Dataset {
+  +load()
+  +preprocess()
+}
+class Trainer {
+  +fit()
+  +validate()
+}
+GhanaSegNet -- Trainer
+Trainer -- Dataset
+@enduml

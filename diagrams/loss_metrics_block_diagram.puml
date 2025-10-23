@@ -1,0 +1,9 @@
+@startuml loss_metrics_block
+rectangle "Predictions" as P
+rectangle "Ground Truth" as GT
+rectangle "Loss Function" as LF
+rectangle "Metrics" as M
+P --> LF
+GT --> LF
+LF --> M
+@enduml

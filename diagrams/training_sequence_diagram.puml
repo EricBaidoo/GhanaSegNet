@@ -1,0 +1,13 @@
+@startuml
+actor DataScientist
+participant Dataset
+participant GhanaSegNet
+participant Trainer
+DataScientist -> Dataset: Load & Preprocess
+DataScientist -> GhanaSegNet: Initialize Model
+DataScientist -> Trainer: Start Training
+Trainer -> GhanaSegNet: forward()
+Trainer -> Dataset: get_batch()
+Trainer -> GhanaSegNet: evaluate()
+DataScientist -> GhanaSegNet: Inference
+@enduml
