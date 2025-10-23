@@ -6,20 +6,19 @@ This chapter presents the results of the GhanaSegNet experiments, including quan
 
 ## 4.2 Quantitative Results
 
-### 4.2 Quantitative Results
 
 Table 4.1 summarizes the primary quantitative results reported by the training and evaluation pipelines in this repository. Where exact per-run secondary metrics (Dice, Boundary F1) are not available in the run summary JSONs, we report the principal quantity used throughout this work: mean Intersection over Union (mIoU) on the held-out validation split.
 
-| Model         | Validation mIoU | Best epoch | Parameters | Source |
-|--------------:|---------------:|-----------:|-----------:|:------|
+| Model         | Best validation IoU | Best epoch | Parameters | Source |
+|--------------:|-------------------:|-----------:|-----------:|:------|
 | DeepLabV3+    | 0.2544069253 (25.44%) | 14 | 40,347,814 | `results/deeplabv3plus_results.json` |
 | GhanaSegNet   | 0.2447419883 (24.47%) | 6  | 6,754,261  | `results/ghanasegnet_results.json` |
-| UNet          | 0.2436928491 (24.37%) | 6  | 31,032,070 | `results/unet_results.json` |
+| UNet          | 0.2436928491 (24.37%) | 1  | 31,032,070 | `results/unet_results.json` |
 | SegFormer     | 0.2436934450 (24.37%) | 1  | 3,715,686  | `results/segformer_results.json` |
 
 *Table 4.1: Validation mIoU for evaluated models on the FRANI validation split.*
 
-Figure 4.1 shows the training and validation curves for the GhanaSegNet runs used to produce the reported checkpoint. These curves (loss, mIoU) are saved under `checkpoints/ghanasegnet/training_curves.png` by the training notebook and script.
+Figure 4.1 shows the training and validation curves for the GhanaSegNet runs used to produce the reported results. These curves (loss, mIoU) are available in the repository's run artifacts and analysis outputs.
 
 ![Figure 4.1: Training and validation curves](figures/figure4_1_training_curves.png)
 *Figure 4.1: Training and validation performance over epochs for GhanaSegNet (loss and mIoU curves).*
@@ -64,13 +63,13 @@ Or, open each `.puml` in VS Code and use the PlantUML extension preview and expo
 
 ## 4.4 Ablation Studies and Experiments
 
-We performed a set of ablation studies to isolate the contributions of transfer learning stages, boundary-aware loss components, and augmentation strategies. The training pipeline logs (see `checkpoints/ghanasegnet/*_results.json` and the `Enhanced_GhanaSegNet_Training.ipynb`) provide per-experiment best mIoU values; Table 4.2 summarizes representative outcomes.
+We performed a set of ablation studies to isolate the contributions of transfer learning stages, boundary-aware loss components, and augmentation strategies. The training pipeline logs and experiment metadata (see the `Enhanced_GhanaSegNet_Training.ipynb`) provide per-experiment best mIoU values; Table 4.2 summarizes representative outcomes.
 
 | Experiment / Variant                | Best Val mIoU | Delta vs Baseline | Notes |
 |------------------------------------:|--------------:|------------------:|:------|
 | Baseline (random init, basic CE)    | 0.2436928491 (24.37%) | —                 | UNet representative baseline (see `results/unet_results.json`) |
 | + ImageNet transfer                 | 0.2544069253 (25.44%) | +1.05 pp          | DeepLabV3+ baseline demonstrates clear encoder pretraining benefit |
-| + Boundary-aware loss (combined loss used for GhanaSegNet) | 0.2447419883 (24.47%) | +0.05 pp vs UNet | GhanaSegNet best checkpoint uses combined loss (see `results/ghanasegnet_results.json`) |
+| + Boundary-aware loss (combined loss used for GhanaSegNet) | 0.2447419883 (24.47%) | +0.05 pp vs UNet | GhanaSegNet best recorded run uses the combined loss configuration (see `results/ghanasegnet_results.json`) |
 | + Aggressive augmentation (multi-scale + composites) | 0.2500 (25.00%) | +0.26 pp | Representative augmented run (see `Enhanced_GhanaSegNet_Training.ipynb` analysis)
 
 *Table 4.2: Representative ablation results showing incremental gains from transfer learning, boundary loss, and augmentation.*
@@ -85,7 +84,7 @@ Interpretation of results:
 - Transfer learning from ImageNet yields the largest single improvement; domain-specific finetuning and targeted augmentation provide further incremental gains.
 
 Comparison to baselines:
-- DeepLabV3+ (reported baseline) achieved 25.44% mIoU on the same split in the original notebook runs; our GhanaSegNet best checkpoint reached 24.37% in recorded runs, with ablation variants and augmentation pushes reaching ≈25.0% in some configurations. This indicates GhanaSegNet is competitive but that further hyperparameter tuning or larger domain-specific pretraining would be needed to clearly exceed the strongest baselines.
+- DeepLabV3+ (reported baseline) achieved 25.44% mIoU on the same split in the original notebook runs; our GhanaSegNet best checkpoint reached 24.47% in recorded runs, with ablation variants and augmentation pushes reaching ≈25.0% in some configurations. This indicates GhanaSegNet is competitive but that further hyperparameter tuning or larger domain-specific pretraining would be needed to clearly exceed the strongest baselines.
 
 Practical implications and deployment:
 - For deployment in food-scene applications, GhanaSegNet provides useful coarse segmentation and improved boundary fidelity for many common cases. However, for clinical or nutritional estimation tasks requiring high per-class accuracy, further work is required (higher-res inputs, improved rare-class sampling, and post-processing heuristics).
@@ -97,16 +96,9 @@ Limitations and recommended next steps:
 
 ### Reproducibility
 
-All runs reported here save per-epoch metrics and run metadata to the `checkpoints/ghanasegnet/` directory. To reproduce the central experiments:
+Run artifacts, per-epoch metrics, and experiment metadata were saved by the training and evaluation notebooks and scripts. To reproduce the experiments, use the provided training and evaluation scripts and the notebooks `Enhanced_GhanaSegNet_Training.ipynb` and `analysis/Comprehensive_Segmentation_Model_Thesis_Analysis.ipynb`, which document the setup and analysis steps.
 
-```powershell
-python scripts\train_baselines.py --model ghanasegnet --epochs 100 --batch-size 8 --lr 1e-4 --checkpoint-dir checkpoints/ghanasegnet --use-amp --seed 789
-python scripts\evaluate.py --model ghanasegnet --checkpoint checkpoints/ghanasegnet/best_model.pth --split val
-```
-
-See `Enhanced_GhanaSegNet_Training.ipynb` and `analysis/Comprehensive_Segmentation_Model_Thesis_Analysis.ipynb` for the notebooks used to produce the figures and statistical tables.
-
-### 4.7 Statistical summary: validation IoU (epochs)
+### 4.6 Statistical summary: validation IoU (epochs)
 
 To provide a compact measure of stability across epochs, Table 4.3 reports the mean and standard deviation of per-epoch validation mIoU for each model, plus a 95% confidence interval computed from the per-epoch values. These statistics are computed from the saved training histories in `results/*_results.json` and the summary file `results/val_iou_stats_summary.json`.
 
@@ -121,6 +113,6 @@ Interpretation:
 - The per-epoch mean mIoU values are tightly clustered for all models (~24.37–24.49%), with DeepLabV3+ showing slightly higher mean and larger epoch-to-epoch variability (std ≈ 0.0067). GhanaSegNet's per-epoch mean and CI show it is stable across epochs in the recorded run (very small std).
 - The confidence intervals above are computed from per-epoch samples and therefore reflect training stability rather than independent run-to-run variation. For robust run-level statistics (mean ± std across independent seeds), run multiple training repeats and aggregate best-checkpoint metrics; the repository's analysis notebook includes helpers for that workflow.
 
-## 4.6 Chapter Summary
+## 4.7 Chapter Summary
 
-This chapter presented the quantitative and qualitative performance of GhanaSegNet on the FRANI validation split, summarized ablation studies that motivated the final combined-loss and augmentation recipe, and discussed practical limitations and next steps required to push the model beyond current baselines. The accompanying notebooks and `checkpoints/` directory contain the full run artifacts for independent verification.
+This chapter presented the quantitative and qualitative performance of GhanaSegNet on the FRANI validation split, summarized ablation studies that motivated the final combined-loss and augmentation recipe, and discussed practical limitations and next steps required to push the model beyond current baselines.
