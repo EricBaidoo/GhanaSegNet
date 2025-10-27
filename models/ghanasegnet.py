@@ -1,36 +1,23 @@
-class SEBlock(nn.Module):
-    """Squeeze-and-Excitation block for lightweight channel attention"""
-    def __init__(self, channels, reduction=16):
-        super(SEBlock, self).__init__()
-        self.fc1 = nn.Linear(channels, channels // reduction)
-        self.fc2 = nn.Linear(channels // reduction, channels)
-    def forward(self, x):
-        b, c, h, w = x.size()
-        y = x.mean(dim=(2, 3))
-        y = F.relu(self.fc1(y))
-        y = torch.sigmoid(self.fc2(y)).view(b, c, 1, 1)
-        return x * y
 """
 GhanaSegNet: Enhanced Hybrid CNN-Transformer Architecture
 for Semantic Segmentation of Traditional Ghanaian Foods
 
-Key Innovations for 30% mIoU Target:
+Key Innovations:
 - EfficientNet-B0 backbone with ImageNet pretraining
-- Enhanced transformer with 12 attention heads (384 dimensions)
-- 384-channel ASPP module for enhanced multi-scale feature extraction
-- Advanced spatial and channel attention mechanisms
-- Enhanced FPN-style decoder with progressive feature fusion
-- Multi-scale supervision with auxiliary loss heads
+- Enhanced transformer with 8 attention heads (vs 4)
+- ASPP module for multi-scale feature extraction
+- Enhanced spatial attention with channel attention
+- Improved decoder with progressive feature fusion
+- Optimized for fair benchmarking against DeepLabV3+
 
-Architectural Enhancements for 30% mIoU Performance:
-- Multi-scale context via enhanced ASPP (384 channels)
-- 12-head transformer with advanced attention mechanisms
-- Enhanced decoder blocks with increased capacity
-- Progressive training support (256→320→384px)
-- Advanced feature refinement and boundary enhancement
+Architectural Enhancements for Benchmarking:
+- Multi-scale context via ASPP (like DeepLabV3+)
+- Deeper transformer with better gradient flow
+- Enhanced attention mechanisms
+- Progressive decoder improvements
 
 Author: EricBaidoo
-Date: Enhanced October 13, 2025 - 30% mIoU Target
+Date: Enhanced October 11, 2025
 """
 
 import torch
@@ -38,62 +25,48 @@ import torch.nn as nn
 import torch.nn.functional as F
 from efficientnet_pytorch import EfficientNet
 
-class StochasticDepth(nn.Module):
-    """Stochastic Depth regularization for transformer blocks"""
-    def __init__(self, p):
-        super(StochasticDepth, self).__init__()
-        self.p = p
-    def forward(self, x):
-        if not self.training or self.p == 0.0:
-            return x
-        keep_prob = 1 - self.p
-        shape = [x.shape[0]] + [1] * (x.ndim - 1)
-        random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
-        binary_tensor = torch.floor(random_tensor)
-        return x / keep_prob * binary_tensor
-
 class TransformerBlock(nn.Module):
-    # Placeholder for deformable attention (requires external library or custom implementation)
-    def __init__(self, dim, heads=12, mlp_dim=768, dropout=0.1, stochastic_depth_p=0.1):  # Increased heads & MLP
+    """
+    Advanced Transformer block targeting 30% mIoU performance
+    Enhanced with cross-attention and feature refinement mechanisms
+    """
+    def __init__(self, dim, heads=8, mlp_dim=512, dropout=0.1):
         super(TransformerBlock, self).__init__()
         
-        # Multi-scale self-attention with increased capacity
+        # Dual-path attention for enhanced feature learning
         self.norm1 = nn.LayerNorm(dim)
         self.self_attn = nn.MultiheadAttention(
             embed_dim=dim, 
-            num_heads=heads,  # Increased to 12 heads
-            dropout=dropout * 0.4,  # Reduced dropout for better learning
+            num_heads=heads,
+            dropout=dropout * 0.5,
             batch_first=True
         )
         
-        # Enhanced cross-scale attention with more heads
-        self.norm1_cross = nn.LayerNorm(dim)  
+        # Cross-scale attention for multi-resolution features
+        self.norm1_cross = nn.LayerNorm(dim)
         self.cross_attn = nn.MultiheadAttention(
             embed_dim=dim,
-            num_heads=heads // 2,  # 6 heads for cross-attention
-            dropout=dropout * 0.4,
+            num_heads=heads // 2,  # Fewer heads for cross-attention
+            dropout=dropout * 0.5,
             batch_first=True
         )
         
         self.norm2 = nn.LayerNorm(dim)
         
-        # SUPER-ENHANCED MLP with advanced gating mechanism
+        # Enhanced MLP with gating mechanism
         self.mlp = nn.Sequential(
-            nn.Linear(dim, mlp_dim),  # Now 768 dimensions
+            nn.Linear(dim, mlp_dim),
             nn.GELU(),
-            nn.Dropout(dropout * 0.8),  # Reduced dropout for better learning
-            nn.Linear(mlp_dim, mlp_dim // 2),  # 384 dimensions
+            nn.Dropout(dropout),
+            nn.Linear(mlp_dim, mlp_dim // 2),
             nn.GELU(),
-            nn.Dropout(dropout * 0.6),
             nn.Linear(mlp_dim // 2, dim),
-            nn.Dropout(dropout * 0.4)
+            nn.Dropout(dropout * 0.5)
         )
         
-        # Advanced feature gating with more capacity
+        # Feature gating for selective enhancement
         self.feature_gate = nn.Sequential(
-            nn.Linear(dim, dim // 2),
-            nn.ReLU(inplace=True),
-            nn.Linear(dim // 2, dim),
+            nn.Linear(dim, dim),
             nn.Sigmoid()
         )
         
@@ -101,13 +74,6 @@ class TransformerBlock(nn.Module):
         self.scale_self_attn = nn.Parameter(torch.ones(1) * 0.3)
         self.scale_cross_attn = nn.Parameter(torch.ones(1) * 0.2)
         self.scale_mlp = nn.Parameter(torch.ones(1) * 0.25)
-        
-        # Deformable attention (experimental)
-        self.use_deformable_attn = False  # Set to True to enable
-        self.deformable_attn = None  # Replace with actual module if available
-        
-        # Stochastic Depth regularization
-        self.stochastic_depth = StochasticDepth(stochastic_depth_p)
 
     def forward(self, x):
         B, C, H, W = x.shape
@@ -127,11 +93,6 @@ class TransformerBlock(nn.Module):
         if x_down_spatial.size(1) > 0:  # Ensure we have downsampled features
             cross_attn_out, _ = self.cross_attn(x_norm_cross, x_down_spatial, x_down_spatial)
             x_spatial = x_spatial + self.scale_cross_attn * cross_attn_out
-
-        # Deformable attention (experimental)
-        if self.use_deformable_attn and self.deformable_attn is not None:
-            # Example: x_spatial = x_spatial + self.deformable_attn(x_spatial)
-            pass  # Replace with actual deformable attention logic
         
         # Enhanced MLP with feature gating
         x_norm_mlp = self.norm2(x_spatial)
@@ -147,7 +108,7 @@ class TransformerBlock(nn.Module):
         x_out = x_spatial.transpose(1, 2).view(B, C, H, W)
         
         # Residual connection with original input
-        return self.stochastic_depth(x_out + x * 0.1)
+        return x_out + x * 0.1  # Small residual for stability
 
 class SpatialAttention(nn.Module):
     """Optimized spatial attention for efficient training"""
@@ -157,7 +118,7 @@ class SpatialAttention(nn.Module):
         # Efficient spatial attention branch
         self.spatial_conv = nn.Sequential(
             nn.Conv2d(in_channels, max(in_channels // 16, 8), 1, bias=False),  # More efficient reduction
-            nn.GroupNorm(1, max(in_channels // 16, 8)),
+            nn.BatchNorm2d(max(in_channels // 16, 8)),
             nn.ReLU(inplace=True),
             nn.Conv2d(max(in_channels // 16, 8), 1, 1),
             nn.Sigmoid()
@@ -167,7 +128,6 @@ class SpatialAttention(nn.Module):
         self.channel_attention = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Conv2d(in_channels, max(in_channels // 16, 8), 1, bias=False),
-            nn.GroupNorm(1, max(in_channels // 16, 8)),
             nn.ReLU(inplace=True),
             nn.Conv2d(max(in_channels // 16, 8), in_channels, 1),
             nn.Sigmoid()
@@ -176,7 +136,7 @@ class SpatialAttention(nn.Module):
         # Simplified fusion
         self.fusion = nn.Sequential(
             nn.Conv2d(in_channels, in_channels, 1, bias=False),
-            nn.GroupNorm(8, in_channels)
+            nn.BatchNorm2d(in_channels)
         )
         
     def forward(self, x):
@@ -194,11 +154,10 @@ class SpatialAttention(nn.Module):
 
 class ASPPModule(nn.Module):
     """
-    SUPER-ENHANCED ASPP with Feature Pyramid Network integration for 30% mIoU target
+    Advanced ASPP with Feature Pyramid Network integration for 30% mIoU target
     Multi-scale feature extraction optimized for fine-grained food segmentation
-    INCREASED CAPACITY: 384 channels, 5 dilation rates, SE attention
     """
-    def __init__(self, in_channels, out_channels=384, rates=[2, 4, 8, 16, 24]):  # Increased capacity
+    def __init__(self, in_channels, out_channels, rates=[2, 4, 8, 16]):
         super(ASPPModule, self).__init__()
         
         # Advanced multi-scale feature extraction for 30% mIoU target
@@ -208,20 +167,26 @@ class ASPPModule(nn.Module):
         for dilation in dilations:
             if dilation == 1:
                 # Enhanced 1x1 convolution with residual
-                    block = nn.Sequential(
-                        nn.Conv2d(in_channels, out_channels, 1, bias=False),
-                        nn.BatchNorm2d(out_channels),
-                        nn.ReLU(inplace=True)
-                    )
+                block = nn.Sequential(
+                    nn.Conv2d(in_channels, out_channels, 1, bias=False),
+                    nn.BatchNorm2d(out_channels),
+                    nn.ReLU(inplace=True),
+                    nn.Conv2d(out_channels, out_channels, 1, bias=False),  # Additional conv for refinement
+                    nn.BatchNorm2d(out_channels),
+                    nn.ReLU(inplace=True)
+                )
             else:
                 # Enhanced dilated convolution with depth-wise separable
-                    block = nn.Sequential(
-                        nn.Conv2d(in_channels, in_channels, 3, padding=dilation, dilation=dilation, 
-                                 groups=in_channels, bias=False),  # Depth-wise
-                        nn.Conv2d(in_channels, out_channels, 1, bias=False),  # Point-wise
-                        nn.BatchNorm2d(out_channels),
-                        nn.ReLU(inplace=True)
-                    )
+                block = nn.Sequential(
+                    nn.Conv2d(in_channels, in_channels, 3, padding=dilation, dilation=dilation, 
+                             groups=in_channels, bias=False),  # Depth-wise
+                    nn.Conv2d(in_channels, out_channels, 1, bias=False),  # Point-wise
+                    nn.BatchNorm2d(out_channels),
+                    nn.ReLU(inplace=True),
+                    nn.Conv2d(out_channels, out_channels, 1, bias=False),  # Refinement
+                    nn.BatchNorm2d(out_channels),
+                    nn.ReLU(inplace=True)
+                )
             self.aspp_blocks.append(block)
         
         # Multi-scale feature aggregation
@@ -303,27 +268,30 @@ class EnhancedDecoderBlock(nn.Module):
         # Efficient skip connection processing
         self.skip_conv = nn.Sequential(
             nn.Conv2d(skip_channels, out_channels, 1, bias=False),
-            nn.GroupNorm(8, out_channels),
+            nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
         
         # Efficient main path processing
         self.main_conv = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, 1, bias=False),
-            nn.GroupNorm(8, out_channels),
+            nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
         
         # Streamlined feature fusion
         self.fusion = nn.Sequential(
             nn.Conv2d(out_channels * 2, out_channels, 3, padding=1, bias=False),
-            nn.GroupNorm(8, out_channels),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, 1, bias=False),  # 1x1 instead of 3x3 for efficiency
+            nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
         
         # Lightweight attention
         self.attention = SpatialAttention(out_channels)
-        self.channel_attention = SEBlock(out_channels)
+    
     def forward(self, x, skip):
         # Upsample main path to match skip connection size
         x = F.interpolate(x, size=skip.shape[2:], mode='bilinear', align_corners=False)
@@ -338,9 +306,6 @@ class EnhancedDecoderBlock(nn.Module):
         
         # Apply enhanced attention
         output = self.attention(fused)
-        
-        # Apply lightweight channel attention
-        output = self.channel_attention(output)
         
         return output
 
@@ -369,54 +334,67 @@ class GhanaSegNet(nn.Module):
         # EfficientNet-B0 backbone (ImageNet pretrained)
         self.encoder = EfficientNet.from_pretrained('efficientnet-b0')
         
-        # Enhanced channel reduction for 30% mIoU target
+        # Optimized channel reduction with BatchNorm for stability
         self.conv_reduce = nn.Sequential(
-            nn.Conv2d(1280, 384, kernel_size=1, bias=False),  # Increased to 384
-            nn.BatchNorm2d(384),
+            nn.Conv2d(1280, 256, kernel_size=1, bias=False),
+            nn.BatchNorm2d(256),
             nn.ReLU(inplace=True)
         )
         
-        # Enhanced ASPP module with increased capacity
-        self.aspp = ASPPModule(384, 384, rates=[3, 6, 12])
+        # Food-optimized ASPP module with smaller dilations
+        self.aspp = ASPPModule(256, 256, rates=[3, 6, 12])
         
         # Advanced transformer for 30% mIoU target
         self.transformer = TransformerBlock(
-            dim=384,  # Increased to support 12 heads (384 ÷ 12 = 32)
-            heads=12,  # 12 heads for enhanced attention capacity
-            mlp_dim=768,  # Proportionally increased MLP
+            dim=256, 
+            heads=8,  # 8 heads for proper dimension division
+            mlp_dim=512,  # Increased for better feature learning
             dropout=dropout * 0.8
         )
         
-        # Enhanced Feature Pyramid Network lateral connections
+        # Feature Pyramid Network style lateral connections
         self.lateral_convs = nn.ModuleList([
-            nn.Conv2d(320, 384, 1, bias=False),  # P5
-            nn.Conv2d(112, 384, 1, bias=False),  # P4  
-            nn.Conv2d(40, 384, 1, bias=False),   # P3
-            nn.Conv2d(24, 384, 1, bias=False),   # P2
+            nn.Conv2d(320, 256, 1, bias=False),  # P5
+            nn.Conv2d(112, 256, 1, bias=False),  # P4  
+            nn.Conv2d(40, 256, 1, bias=False),   # P3
+            nn.Conv2d(24, 256, 1, bias=False),   # P2
         ])
         
-        # Enhanced FPN output convolutions
+        # FPN output convolutions
         self.fpn_convs = nn.ModuleList([
             nn.Sequential(
-                nn.Conv2d(384, 192, 3, padding=1, bias=False),  # Increased input channels
-                nn.BatchNorm2d(192),
+                nn.Conv2d(256, 128, 3, padding=1, bias=False),
+                nn.BatchNorm2d(128),
                 nn.ReLU(inplace=True)
             ) for _ in range(4)
         ])
         
         # Advanced FPN-style decoder for 30% mIoU target
         # Multi-scale feature fusion with enhanced decoder blocks
-        self.dec4 = EnhancedDecoderBlock(384, 192, 192)  # Enhanced FPN P5 features
-        self.dec3 = EnhancedDecoderBlock(384, 192, 144)  # Enhanced FPN P4 features (192 from FPN + 192 from dec4)
-        self.dec2 = EnhancedDecoderBlock(336, 192, 96)   # Enhanced FPN P3 features (144+192)
-        self.dec1 = EnhancedDecoderBlock(288, 192, 96)   # Enhanced FPN P2 features (96+192)
+        self.dec4 = EnhancedDecoderBlock(256, 128, 128)  # FPN P5 features
+        self.dec3 = EnhancedDecoderBlock(256, 128, 96)   # FPN P4 features (256 from FPN + 128 from dec4)
+        self.dec2 = EnhancedDecoderBlock(224, 128, 64)   # FPN P3 features (96+128)
+        self.dec1 = EnhancedDecoderBlock(192, 128, 64)   # FPN P2 features (64+128)
         
-        # Single lightweight auxiliary head for supervision
-        self.aux_head = nn.Conv2d(192, num_classes, 1)
+        # Multi-scale supervision for enhanced training
+        self.aux_heads = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(128, 64, 3, padding=1, bias=False),
+                nn.BatchNorm2d(64),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(64, 6, 1)  # Auxiliary prediction head
+            ),
+            nn.Sequential(
+                nn.Conv2d(96, 64, 3, padding=1, bias=False),
+                nn.BatchNorm2d(64),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(64, 6, 1)
+            )
+        ])
         
         # Advanced final classification head with feature refinement
         self.final_conv = nn.Sequential(
-            nn.Conv2d(96, 64, 3, padding=1, bias=False),  # Updated input channels
+            nn.Conv2d(64, 64, 3, padding=1, bias=False),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
             nn.Conv2d(64, 32, 3, padding=1, bias=False),
@@ -484,24 +462,24 @@ class GhanaSegNet(nn.Module):
         x_enc = self.encoder._swish(x_enc)
         
         # Advanced bottleneck processing
-        x_bottleneck = self.conv_reduce(x_enc)      # Channel reduction to 384
+        x_bottleneck = self.conv_reduce(x_enc)      # Channel reduction to 256
         x_bottleneck = self.aspp(x_bottleneck)      # Enhanced multi-scale ASPP
-        x_bottleneck = self.transformer(x_bottleneck)  # Advanced transformer with 12-head attention
+        x_bottleneck = self.transformer(x_bottleneck)  # Advanced transformer with cross-attention
         
         # FPN-style lateral connections (top-down pathway)
         fpn_features = []
         
         # P5 (highest resolution feature map after bottleneck)
-        p5 = x_bottleneck  # 384 channels
+        p5 = x_bottleneck  # 256 channels
         fpn_features.append(self.fpn_convs[0](p5))
         
         # P4: lateral connection + top-down
-        lateral_p4 = self.lateral_convs[1](features[3])  # 112 -> 384
+        lateral_p4 = self.lateral_convs[1](features[3])  # 112 -> 256
         p4 = lateral_p4 + F.interpolate(p5, size=lateral_p4.shape[2:], mode='bilinear', align_corners=False)
         fpn_features.append(self.fpn_convs[1](p4))
         
         # P3: lateral connection + top-down  
-        lateral_p3 = self.lateral_convs[2](features[2])  # 40 -> 384
+        lateral_p3 = self.lateral_convs[2](features[2])  # 40 -> 256
         p3 = lateral_p3 + F.interpolate(p4, size=lateral_p3.shape[2:], mode='bilinear', align_corners=False)
         fpn_features.append(self.fpn_convs[2](p3))
         
@@ -518,11 +496,17 @@ class GhanaSegNet(nn.Module):
         x_combined = torch.cat([x_up, fpn_features[1]], dim=1)  # 128 + 128 = 256
         x = self.dec3(x_combined, fpn_features[1])              # -> 96
         
-        # Auxiliary supervision (single lightweight head)
-        aux_output = None
+        # Multi-scale supervision (auxiliary loss during training)
+        aux_outputs = []
         if self.training:
-            aux_output = self.aux_head(fpn_features[0])
-            aux_output = F.interpolate(aux_output, size=input_size, mode='bilinear', align_corners=False)
+            aux_out1 = self.aux_heads[0](fpn_features[0])
+            aux_out1 = F.interpolate(aux_out1, size=input_size, mode='bilinear', align_corners=False)
+            aux_outputs.append(aux_out1)
+            
+            aux_out2 = self.aux_heads[1](x)
+            aux_out2 = F.interpolate(aux_out2, size=input_size, mode='bilinear', align_corners=False)
+            aux_outputs.append(aux_out2)
+        
         # Continue with P3 and P2 features
         x_up = F.interpolate(x, size=fpn_features[2].shape[2:], mode='bilinear', align_corners=False)
         x_combined = torch.cat([x_up, fpn_features[2]], dim=1)  # 96 + 128 = 224
@@ -541,8 +525,8 @@ class GhanaSegNet(nn.Module):
         # Upsample to input resolution
         x = F.interpolate(x, size=input_size, mode='bilinear', align_corners=False)
         
-        if self.training and aux_output is not None:
-            return x, aux_output  # Return main output + single auxiliary output
+        if self.training and aux_outputs:
+            return x, aux_outputs  # Return main output + auxiliary outputs for multi-scale supervision
         else:
             return x
     
@@ -559,5 +543,3 @@ class GhanaSegNet(nn.Module):
             'transformer': list(self.transformer.parameters()),
             'bottleneck': list(self.conv1.parameters())
         }
-
-# Class is defined as `GhanaSegNet` for consistency across the codebase

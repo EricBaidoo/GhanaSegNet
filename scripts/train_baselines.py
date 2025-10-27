@@ -9,7 +9,6 @@ import sys
 import os
 import argparse
 import json
-import time
 from datetime import datetime
 
 # Add parent directory to sys.path for module imports
@@ -23,8 +22,6 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm import tqdm
 import random
 import numpy as np
-from torchvision import transforms
-from torchvision.transforms import RandomHorizontalFlip, RandomVerticalFlip, ColorJitter, RandomRotation, RandomResizedCrop
 
 # Import baseline models
 from models.unet import UNet
@@ -33,10 +30,9 @@ from models.segformer import SegFormerB0
 from models.ghanasegnet import GhanaSegNet
 
 # Import utilities
-# Note: GhanaFoodDataset is imported dynamically from dataset path
+from data.dataset_loader import GhanaFoodDataset
 from utils.losses import CombinedLoss
 from utils.metrics import compute_iou, compute_pixel_accuracy
-from utils.optimizers import create_optimized_optimizer_and_scheduler, get_progressive_training_config
 
 class EarlyStopping:
     """
@@ -115,10 +111,6 @@ def set_seed(seed, benchmark_mode=True):
         seed: Random seed to use
         benchmark_mode: If True, enables deterministic operations for reproducible benchmarking
     """
-    # Handle None seed
-    if seed is None:
-        seed = 789
-    
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -142,23 +134,12 @@ def set_seed(seed, benchmark_mode=True):
 
 def train_epoch(model, train_loader, criterion, optimizer, device, epoch, model_name):
     """
-    Train for one epoch. Applies model-specific gradient clipping for stability.
-    Transformer models get stricter clipping to prevent gradient explosions.
+    Train for one epoch. Applies gradient clipping for stability.
     """
     model.train()
     total_loss = 0.0
     total_samples = 0
     pbar = tqdm(train_loader, desc=f"Epoch {epoch} Training [{model_name}]")
-    
-    # Model-specific gradient clipping (transformers need tighter control)
-    grad_clip_norms = {
-        'unet': 5.0,           # CNN models are stable, looser clipping
-        'deeplabv3plus': 5.0,  # ResNet backbone is stable
-        'segformer': 1.0,      # Transformer needs tight clipping
-        'ghanasegnet': 1.0     # Hybrid transformer needs tight clipping
-    }
-    clip_norm = grad_clip_norms.get(model_name.lower(), 1.0)
-    
     for images, masks in pbar:
         images, masks = images.to(device), masks.to(device)
         optimizer.zero_grad()
@@ -166,16 +147,15 @@ def train_epoch(model, train_loader, criterion, optimizer, device, epoch, model_
         
         # Handle auxiliary outputs for enhanced GhanaSegNet
         if model_name == 'ghanasegnet' and isinstance(outputs, tuple):
-            main_outputs, aux_output = outputs
-            loss = criterion(main_outputs, masks, [aux_output])
+            main_outputs, aux_outputs = outputs
+            loss = criterion(main_outputs, masks, aux_outputs)
         else:
             if isinstance(outputs, tuple):
                 outputs = outputs[0]  # Take main output if tuple returned
             loss = criterion(outputs, masks)
         
         loss.backward()
-        # Apply model-specific gradient clipping
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_norm)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         total_loss += loss.item() * images.size(0)
         total_samples += images.size(0)
@@ -199,8 +179,8 @@ def validate_epoch(model, val_loader, criterion, device, epoch, model_name, num_
             
             # Handle auxiliary outputs for enhanced GhanaSegNet validation
             if model_name == 'ghanasegnet' and isinstance(outputs, tuple):
-                main_outputs, aux_output = outputs
-                loss = criterion(main_outputs, masks, [aux_output])
+                main_outputs, aux_outputs = outputs
+                loss = criterion(main_outputs, masks, aux_outputs)
                 preds = torch.argmax(main_outputs, dim=1)
             else:
                 if isinstance(outputs, tuple):
@@ -229,26 +209,6 @@ def train_model(model_name, config):
     Main training function for a single model.
     Handles data loading, training loop, validation, checkpointing, and logging.
     """
-    # For GhanaSegNet, use enhanced training with all optimizations
-    if model_name == 'ghanasegnet':
-        # Ensure custom_seed is never None
-        custom_seed = config.get('custom_seed')
-        if custom_seed is None:
-            custom_seed = 789
-        
-        return enhanced_train_model(
-            model_name=model_name,
-            epochs=config['epochs'],
-            batch_size=config['batch_size'],
-            learning_rate=config['learning_rate'],
-            weight_decay=config['weight_decay'],
-            num_classes=config['num_classes'],
-            dataset_path=config['dataset_path'],
-            device=config['device'],
-            benchmark_mode=config.get('benchmark_mode', True),
-            custom_seed=custom_seed
-        )
-    
     print(f"Starting training for {model_name.upper()}")
     print(f"Config: {json.dumps(config, indent=2)}")
     
@@ -281,11 +241,7 @@ def train_model(model_name, config):
         else:
             print("   - Fast mode enabled (non-deterministic operations)")
     
-    # Handle device selection
-    if config.get('device') == 'auto' or config.get('device') is None:
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    else:
-        device = torch.device(config['device'])
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
 
     # Set input sizes based on original papers
@@ -298,43 +254,18 @@ def train_model(model_name, config):
     input_size = model_input_sizes.get(model_name.lower(), (256, 256))
 
     print("Loading datasets...")
-    data_root = config.get('dataset_path', 'data')
-    print(f"Using dataset path: {data_root}")
-    
-    # Try new dataset loader with data_root parameter, fallback to old version
-    try:
-        train_dataset = GhanaFoodDataset('train', target_size=input_size, data_root=data_root)
-        val_dataset = GhanaFoodDataset('val', target_size=input_size, data_root=data_root)
-        print(f"✅ Using enhanced dataset loader with custom data path")
-    except TypeError:
-        # Fallback for older dataset loader without data_root parameter
-        print(f"⚠️  Using fallback dataset loader (expects data in './data' folder)")
-        train_dataset = GhanaFoodDataset('train', target_size=input_size)
-        val_dataset = GhanaFoodDataset('val', target_size=input_size)
-    
-    # OPTIMIZATION: Model-specific batch sizes (smaller models can use larger batches)
-    # GhanaSegNet (6.75M params) can use larger batch than DeepLabV3+ (40M params)
-    model_optimal_batch_sizes = {
-        'unet': config['batch_size'],           # 31M params - use default
-        'deeplabv3plus': config['batch_size'],  # 40M params - use default  
-        'segformer': config['batch_size'],      # 3.7M params - could go higher but keep fair
-        'ghanasegnet': config['batch_size']     # 6.75M params - could use 16 but keep fair
-    }
-    optimal_batch_size = model_optimal_batch_sizes.get(model_name.lower(), config['batch_size'])
-    
-    if optimal_batch_size != config['batch_size']:
-        print(f"📦 Using optimal batch size {optimal_batch_size} for {model_name.upper()} (model has fewer parameters)")
-    
+    train_dataset = GhanaFoodDataset('train', target_size=input_size)
+    val_dataset = GhanaFoodDataset('val', target_size=input_size)
     train_loader = DataLoader(
         train_dataset, 
-        batch_size=optimal_batch_size, 
+        batch_size=config['batch_size'], 
         shuffle=True, 
         num_workers=2,
         drop_last=True
     )
     val_loader = DataLoader(
         val_dataset, 
-        batch_size=optimal_batch_size, 
+        batch_size=config['batch_size'], 
         shuffle=False, 
         num_workers=0,
         drop_last=True
@@ -352,27 +283,10 @@ def train_model(model_name, config):
     print(f"Total parameters: {total_params:,}")
     print(f"Trainable parameters: {trainable_params:,}")
 
-    # APPROACH 2: Per-Model Optimal Hyperparameters (Research Best Practice)
-    # Different architectures require different learning rates for optimal performance
-    model_optimal_lrs = {
-        'unet': 1e-4,           # CNN-only, can handle higher LR
-        'deeplabv3plus': 1e-4,  # ResNet backbone, stable gradients
-        'segformer': 5e-5,      # Transformer-based, needs lower LR for stability
-        'ghanasegnet': 5e-5     # Hybrid CNN+Transformer, needs lower LR
-    }
-    
-    # Use model-specific optimal LR if available, otherwise use config default
-    optimal_lr = model_optimal_lrs.get(model_name.lower(), config['learning_rate'])
-    
-    if optimal_lr != config['learning_rate']:
-        print(f"📊 ARCHITECTURE-SPECIFIC OPTIMIZATION:")
-        print(f"   Using optimal LR {optimal_lr:.0e} for {model_name.upper()} (vs default {config['learning_rate']:.0e})")
-        print(f"   Justification: {'Transformer' if 'transformer' in model_name.lower() or model_name.lower() == 'ghanasegnet' or model_name.lower() == 'segformer' else 'CNN'}-based architecture")
-
-    # Optimizer with model-specific learning rate
+    # Optimizer and scheduler (Enhanced for better convergence)
     optimizer = optim.AdamW(
         model.parameters(), 
-        lr=optimal_lr,  # Use optimal LR per architecture
+        lr=config['learning_rate'], 
         weight_decay=config['weight_decay'],
         betas=(0.9, 0.999),  # Slightly adjusted for transformer components
         eps=1e-8
@@ -412,16 +326,9 @@ def train_model(model_name, config):
 
     print(f"Starting enhanced training for {config['epochs']} epochs (with early stopping)...")
     
-    # Warmup for transformer-based models (GhanaSegNet & SegFormer benefit from this)
-    # Longer warmup for models with attention mechanisms
-    transformer_models = ['ghanasegnet', 'segformer']
-    if model_name.lower() in transformer_models:
-        warmup_epochs = min(5, config['epochs'] // 10)  # 5 epochs for 50+ epoch training
-        print(f"🔥 TRANSFORMER WARMUP: {warmup_epochs} epochs for stable attention initialization")
-    else:
-        warmup_epochs = 0
-    
-    base_lr = optimal_lr  # Use the architecture-specific optimal LR
+    # Warmup for transformer-based models (GhanaSegNet benefits from this)
+    warmup_epochs = min(3, config['epochs'] // 4) if model_name == 'ghanasegnet' else 0
+    base_lr = config['learning_rate']
     
     for epoch in range(config['epochs']):
         print(f"\nEpoch {epoch+1}/{config['epochs']} - {model_name.upper()}")
@@ -528,8 +435,6 @@ def main():
     parser.add_argument('--batch-size', type=int, default=8, help='Batch size')
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
     parser.add_argument('--num-classes', type=int, default=6, help='Number of classes')
-    parser.add_argument('--dataset-path', type=str, default='data', help='Path to dataset directory')
-    parser.add_argument('--device', type=str, default='auto', choices=['auto', 'cpu', 'cuda'], help='Device to use')
     parser.add_argument('--seed', type=int, default=None, 
                        help='Override default model-specific seeds (for debugging only)')
     parser.add_argument('--benchmark-mode', action='store_true', default=True,
@@ -537,37 +442,18 @@ def main():
     parser.add_argument('--fast-mode', action='store_true', 
                        help='Disable deterministic ops for faster training (not recommended for benchmarking)')
     args = parser.parse_args()
-    
-    # Import GhanaFoodDataset from dataset path
-    # The dataset on Google Drive contains data/dataset_loader.py
-    dataset_path = args.dataset_path
-    if dataset_path not in sys.path:
-        sys.path.insert(0, dataset_path)
-    
-    # Make GhanaFoodDataset available globally for the script
-    global GhanaFoodDataset
-    try:
-        from dataset_loader import GhanaFoodDataset
-        print(f"✓ Successfully imported GhanaFoodDataset from {dataset_path}")
-    except ImportError as e:
-        print(f"✗ Failed to import GhanaFoodDataset from {dataset_path}")
-        print(f"  Error: {e}")
-        print(f"  Please ensure {dataset_path}/dataset_loader.py exists")
-        sys.exit(1)
 
     # Handle benchmarking mode
     benchmark_mode = args.benchmark_mode and not args.fast_mode
     
     config = {
         'epochs': args.epochs,
-        'batch_size': getattr(args, 'batch_size', 8),
+        'batch_size': args.batch_size,
         'learning_rate': args.lr,
         'weight_decay': 1e-4,
         'num_classes': args.num_classes,
         'custom_seed': args.seed,
         'benchmark_mode': benchmark_mode,
-        'dataset_path': getattr(args, 'dataset_path', 'data'),
-        'device': getattr(args, 'device', 'auto'),
         'timestamp': datetime.now().isoformat(),
         'note': 'Using ORIGINAL loss functions for fair baseline comparison'
     }
@@ -635,406 +521,6 @@ def main():
         print(f"\nResults saved to: checkpoints/training_summary.json")
     else:
         train_model(args.model, config)
-
-def enhanced_train_model(model_name='ghanasegnet', epochs=15, batch_size=6, 
-                        learning_rate=1.8e-4, weight_decay=1.5e-3, num_classes=6,
-                        dataset_path='data', device='cuda', disable_early_stopping=False,
-                        use_cosine_schedule=True, use_progressive_training=True,
-                        mixed_precision=True, benchmark_mode=True, custom_seed=789,
-                        input_size=320, use_advanced_augmentation=True):
-    """
-    Enhanced training function optimized for 30% mIoU target in 15 epochs
-    """
-    print("🚀 ENHANCED GHANASEGNET - AMBITIOUS 15-EPOCH TRAINING")
-    print("="*60)
-    print(f"🎯 TARGET: 30% mIoU | REALISTIC: 27-28% mIoU")
-    print(f"🔧 ALL OPTIMIZATIONS ACTIVE")
-    print("="*60)
-    
-    # Set seed for reproducibility
-    set_seed(custom_seed)
-    
-    # Handle device selection (resolve 'auto' to actual device)
-    if device == 'auto' or device is None:
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    elif isinstance(device, str):
-        device = torch.device(device)
-    
-    print(f"🖥️ Using device: {device}")
-    
-    # Initialize enhanced model
-    from models.ghanasegnet import GhanaSegNet
-    model = GhanaSegNet(num_classes=num_classes).to(device)
-    
-    # Model stats
-    total_params = sum(p.numel() for p in model.parameters())
-    print(f"📊 Enhanced Model: {total_params:,} parameters")
-    
-    # Create optimized optimizer and scheduler
-    config = {
-        'learning_rate': learning_rate,
-        'weight_decay': weight_decay,
-        'epochs': epochs
-    }
-    
-    if use_cosine_schedule:
-        optimizer, scheduler = create_optimized_optimizer_and_scheduler(model, config)
-        print(f"✅ Cosine annealing scheduler with warmup")
-    else:
-        optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-        scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5)
-    
-    # Enhanced loss function with dynamic weighting
-    criterion = CombinedLoss(alpha=0.6, aux_weight=0.4, adaptive_weights=True).to(device)
-    print(f"✅ Advanced boundary-aware loss function")
-    
-    # Load dataset with progressive training capability
-    # Try multiple approaches to handle different GhanaFoodDataset versions
-    train_dataset = None
-    val_dataset = None
-    
-    # First, try with data_root parameter (new version)
-    try:
-        train_dataset = GhanaFoodDataset(split='train', transform=None, num_classes=num_classes,
-                                       target_size=(256, 256), data_root=dataset_path)
-        val_dataset = GhanaFoodDataset(split='val', transform=None, num_classes=num_classes,
-                                     target_size=(256, 256), data_root=dataset_path)
-        print(f"✅ Using enhanced dataset loader with data_root parameter")
-    except TypeError as e:
-        if 'data_root' in str(e):
-            # Second, try without data_root parameter (older version)
-            try:
-                train_dataset = GhanaFoodDataset(split='train', transform=None, num_classes=num_classes,
-                                               target_size=(256, 256))
-                val_dataset = GhanaFoodDataset(split='val', transform=None, num_classes=num_classes,
-                                             target_size=(256, 256))
-                print(f"✅ Using legacy dataset loader (no data_root parameter)")
-            except Exception as e2:
-                # Third, try minimal parameters (basic version)
-                try:
-                    train_dataset = GhanaFoodDataset('train', target_size=(256, 256))
-                    val_dataset = GhanaFoodDataset('val', target_size=(256, 256))
-                    print(f"✅ Using basic dataset loader")
-                except Exception as e3:
-                    print(f"❌ All dataset loading attempts failed:")
-                    print(f"   1. With data_root: {e}")
-                    print(f"   2. Without data_root: {e2}")
-                    print(f"   3. Basic version: {e3}")
-                    raise RuntimeError("Unable to load dataset with any available method")
-        else:
-            raise e
-    
-    # Progressive training schedule: resolution increases during training
-    progressive_schedule = {
-        'epochs_256': 5,   # First 5 epochs: 256x256 (stable learning)
-        'epochs_320': 6,   # Next 6 epochs: 320x320 (detail enhancement)
-        'epochs_384': 4    # Final 4 epochs: 384x384 (maximum performance)
-    }
-    current_resolution = 256
-    print(f"🔄 PROGRESSIVE TRAINING ACTIVE:")
-    print(f"   Epochs 1-5: 256x256 (stable learning)")
-    print(f"   Epochs 6-11: 320x320 (detail enhancement)")
-    print(f"   Epochs 12-15: 384x384 (maximum performance)")
-    
-    # Initialize data loaders (will be recreated during progressive training)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, 
-                             num_workers=4, pin_memory=True, drop_last=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, 
-                           num_workers=4, pin_memory=True)
-    
-    print(f"📊 Dataset: {len(train_dataset)} train, {len(val_dataset)} val samples")
-    
-    # Advanced training tracking with early stopping
-    best_val_iou = 0.0
-    training_history = []
-    milestone_alerts = [25.0, 27.0, 28.0, 29.0, 30.0]  # mIoU milestones
-    achieved_milestones = set()
-    
-    # Early stopping to prevent overfitting (since you get drops after epoch 11)
-    early_stopping_patience = 6
-    early_stopping_counter = 0
-    early_stopping_min_delta = 0.002  # Minimum improvement threshold
-    
-    # Mixed precision training
-    if mixed_precision and device == 'cuda':
-        from torch.cuda.amp import autocast, GradScaler
-        scaler = GradScaler()
-        print(f"✅ Mixed precision training enabled")
-    else:
-        scaler = None
-    
-    print(f"\n🚀 STARTING AMBITIOUS 15-EPOCH TRAINING...")
-    
-    for epoch in range(1, epochs + 1):
-        epoch_start = time.time()
-        
-        # 🔄 PROGRESSIVE RESOLUTION TRAINING for 30% mIoU target
-        new_resolution = current_resolution
-        current_batch_size = batch_size
-        
-        if epoch <= 5:
-            new_resolution = 256
-            current_batch_size = 8  # Higher batch size for smaller resolution
-        elif epoch <= 11:
-            new_resolution = 320
-            current_batch_size = 6  # Medium batch size
-        else:
-            new_resolution = 384
-            current_batch_size = 4  # Smaller batch size for higher resolution
-        
-        # Update resolution if changed (critical for capturing fine details)
-        if new_resolution != current_resolution:
-            current_resolution = new_resolution
-            print(f"\n🔄 PROGRESSIVE TRAINING: Switching to {current_resolution}x{current_resolution}")
-            print(f"   Batch size adjusted to: {current_batch_size}")
-            
-            # Update dataset resolution
-            train_dataset.target_size = (current_resolution, current_resolution)
-            val_dataset.target_size = (current_resolution, current_resolution)
-            
-            # Recreate data loaders with new batch size
-            train_loader = DataLoader(train_dataset, batch_size=current_batch_size, shuffle=True, 
-                                     num_workers=4, pin_memory=True, drop_last=True)
-            val_loader = DataLoader(val_dataset, batch_size=current_batch_size, shuffle=False, 
-                                   num_workers=4, pin_memory=True)
-            
-            print(f"   ✅ Resolution updated: {current_resolution}x{current_resolution}")
-        
-        # Get progressive training configuration
-        if use_progressive_training:
-            prog_config = get_progressive_training_config(epoch, epochs)
-            print(f"\n📊 EPOCH {epoch}/{epochs} - Progressive Config:")
-            print(f"   Resolution: {current_resolution}x{current_resolution}, Batch: {current_batch_size}")
-            print(f"   Mixup: {prog_config['mixup_alpha']:.1f}, Augmentation: {prog_config['augmentation_strength']:.1f}")
-        
-        # Training phase
-        model.train()
-        train_loss = 0.0
-        train_samples = 0
-        
-        train_pbar = tqdm(train_loader, desc=f"Train Epoch {epoch}")
-        for batch_idx, (images, masks) in enumerate(train_pbar):
-            images, masks = images.to(device), masks.to(device)
-            
-            optimizer.zero_grad()
-            
-            if scaler:  # Mixed precision
-                with autocast():
-                    outputs = model(images)
-                    if isinstance(outputs, tuple):  # Handle auxiliary outputs
-                        main_output, aux_outputs = outputs
-                        loss = criterion(main_output, masks, aux_outputs)
-                    else:
-                        loss = criterion(outputs, masks)
-                
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-            else:  # Regular training
-                outputs = model(images)
-                if isinstance(outputs, tuple):
-                    main_output, aux_outputs = outputs
-                    loss = criterion(main_output, masks, aux_outputs)
-                else:
-                    loss = criterion(outputs, masks)
-                
-                loss.backward()
-                optimizer.step()
-            
-            train_loss += loss.item()
-            train_samples += images.size(0)
-            
-            # Update progress bar
-            train_pbar.set_postfix({'Loss': f'{loss.item():.4f}'})
-        
-        avg_train_loss = train_loss / len(train_loader)
-        
-        # Validation phase
-        model.eval()
-        val_loss = 0.0
-        total_iou = 0.0
-        total_accuracy = 0.0
-        val_samples = 0
-        
-        with torch.no_grad():
-            val_pbar = tqdm(val_loader, desc=f"Val Epoch {epoch}")
-            for images, masks in val_pbar:
-                images, masks = images.to(device), masks.to(device)
-                
-                if scaler:
-                    with autocast():
-                        outputs = model(images)
-                        if isinstance(outputs, tuple):
-                            main_output = outputs[0]
-                        else:
-                            main_output = outputs
-                        loss = criterion(main_output, masks)
-                else:
-                    outputs = model(images)
-                    if isinstance(outputs, tuple):
-                        main_output = outputs[0]
-                    else:
-                        main_output = outputs
-                    loss = criterion(main_output, masks)
-                
-                val_loss += loss.item()
-                
-                # Compute metrics (convert logits to predictions)
-                preds = torch.argmax(main_output, dim=1)
-                iou = compute_iou(preds, masks, num_classes)
-                accuracy = compute_pixel_accuracy(preds, masks)
-                
-                total_iou += iou
-                total_accuracy += accuracy
-                val_samples += images.size(0)
-                
-                val_pbar.set_postfix({
-                    'Loss': f'{loss.item():.4f}',
-                    'IoU': f'{iou:.4f}',
-                    'Acc': f'{accuracy:.4f}'
-                })
-        
-        avg_val_loss = val_loss / len(val_loader)
-        avg_val_iou = total_iou / len(val_loader)
-        avg_val_accuracy = total_accuracy / len(val_loader)
-        
-        # Learning rate scheduling
-        if use_cosine_schedule:
-            scheduler.step()
-        else:
-            scheduler.step(avg_val_iou)
-        
-        current_lr = optimizer.param_groups[0]['lr']
-        epoch_time = time.time() - epoch_start
-        
-        # Check for new best
-        is_best = avg_val_iou > best_val_iou
-        if is_best:
-            best_val_iou = avg_val_iou
-            # Save best model
-            os.makedirs(f'checkpoints/{model_name}', exist_ok=True)
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'best_val_iou': best_val_iou,
-                'config': config
-            }, f'checkpoints/{model_name}/best_model.pth')
-        
-        # Check milestones
-        current_miou_percent = avg_val_iou * 100
-        for milestone in milestone_alerts:
-            if current_miou_percent >= milestone and milestone not in achieved_milestones:
-                achieved_milestones.add(milestone)
-                print(f"\n🎉 MILESTONE ACHIEVED: {milestone:.1f}% mIoU!")
-                if milestone >= 30.0:
-                    print(f"🏆 TARGET REACHED! 30% mIoU ACHIEVED AT EPOCH {epoch}!")
-        
-        # Record epoch results
-        epoch_data = {
-            'epoch': epoch,
-            'train_loss': avg_train_loss,
-            'val_loss': avg_val_loss,
-            'val_iou': avg_val_iou,
-            'val_accuracy': avg_val_accuracy,
-            'learning_rate': current_lr,
-            'is_best': is_best,
-            'time': epoch_time
-        }
-        training_history.append(epoch_data)
-        
-        # Progress report
-        print(f"\n📊 EPOCH {epoch}/{epochs} RESULTS:")
-        print(f"   Train Loss: {avg_train_loss:.4f}")
-        print(f"   Val Loss: {avg_val_loss:.4f}")
-        print(f"   Val IoU: {avg_val_iou:.4f} ({current_miou_percent:.2f}%)")
-        print(f"   Val Accuracy: {avg_val_accuracy:.4f}")
-        print(f"   Learning Rate: {current_lr:.2e}")
-        print(f"   Best IoU: {best_val_iou:.4f} ({best_val_iou*100:.2f}%)")
-        print(f"   Epoch Time: {epoch_time:.1f}s")
-        
-        if is_best:
-            print(f"   🎯 NEW BEST PERFORMANCE!")
-        
-        # Progress toward 30% target
-        progress_to_target = (current_miou_percent - 24.4) / (30.0 - 24.4) * 100
-        print(f"   📈 Progress to 30% target: {progress_to_target:.1f}%")
-        
-        # Early stopping logic to prevent overfitting (addresses epoch 11+ drops)
-        if not disable_early_stopping:
-            if is_best:
-                # Reset counter if we found a better model
-                early_stopping_counter = 0
-            else:
-                # Check if improvement is significant enough
-                improvement = avg_val_iou - best_val_iou
-                if improvement < early_stopping_min_delta:
-                    early_stopping_counter += 1
-                    print(f"   ⚠️  Early stopping: {early_stopping_counter}/{early_stopping_patience} epochs without improvement")
-                    
-                    if early_stopping_counter >= early_stopping_patience:
-                        print(f"\n🛑 EARLY STOPPING TRIGGERED!")
-                        print(f"   No significant improvement for {early_stopping_patience} epochs")
-                        print(f"   Best mIoU: {best_val_iou:.4f} ({best_val_iou*100:.2f}%)")
-                        print(f"   Stopping at epoch {epoch} to prevent overfitting")
-                        break
-                else:
-                    # Reset counter if there was some improvement
-                    early_stopping_counter = 0
-        
-        print("-" * 60)
-    
-    # Final results
-    print(f"\n" + "="*60)
-    print(f"🏁 ENHANCED GHANASEGNET TRAINING COMPLETE!")
-    print(f"="*60)
-    print(f"🎯 FINAL RESULTS:")
-    print(f"   Best mIoU: {best_val_iou:.4f} ({best_val_iou*100:.2f}%)")
-    print(f"   Target: 30.00%")
-    print(f"   Gap: {30.0 - best_val_iou*100:+.2f} percentage points")
-    
-    if best_val_iou >= 0.30:
-        print(f"🏆 TARGET ACHIEVED! 30%+ mIoU reached!")
-    elif best_val_iou >= 0.28:
-        print(f"🎉 EXCELLENT! Within 2% of target!")
-    elif best_val_iou >= 0.27:
-        print(f"✅ GREAT! Solid improvement achieved!")
-    else:
-        print(f"📊 Results within expected range.")
-    
-    print(f"   Achieved milestones: {sorted(achieved_milestones)}")
-    
-    # Save training history
-    import numpy as np
-    def convert_bools(obj):
-        if isinstance(obj, dict):
-            return {k: convert_bools(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [convert_bools(v) for v in obj]
-        elif isinstance(obj, (np.bool_, bool)):
-            return bool(obj)
-        else:
-            return obj
-    with open(f'checkpoints/{model_name}/training_history.json', 'w') as f:
-        json.dump(convert_bools(training_history), f, indent=2)
-    
-    return {
-        'best_val_iou': best_val_iou,
-        'final_val_iou': training_history[-1]['val_iou'],
-        'training_history': training_history,
-        'achieved_milestones': list(achieved_milestones),
-        'target_achieved': best_val_iou >= 0.30
-    }
-
-def get_advanced_augmentation(input_size):
-    return transforms.Compose([
-        RandomResizedCrop(input_size, scale=(0.8, 1.0)),
-        RandomHorizontalFlip(),
-        RandomVerticalFlip(),
-        ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-        RandomRotation(degrees=15),
-        transforms.ToTensor(),
-    ])
 
 if __name__ == "__main__":
     main()
