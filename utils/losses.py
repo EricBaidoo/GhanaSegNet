@@ -28,152 +28,47 @@ class DiceLoss(nn.Module):
         return 1 - dice.mean()
 
 
-class AdvancedBoundaryLoss(nn.Module):
-    """
-    Advanced boundary-aware loss for Enhanced GhanaSegNet
-    Optimized for 30% mIoU achievement with food segmentation boundaries
-    """
-    def __init__(self, boundary_weight=2.0, distance_weight=1.0):
-        super(AdvancedBoundaryLoss, self).__init__()
-        self.boundary_weight = boundary_weight
-        self.distance_weight = distance_weight
-        
-        # Multi-scale edge detection kernels
-        self.sobel_x = nn.Conv2d(1, 1, 3, padding=1, bias=False)
-        self.sobel_y = nn.Conv2d(1, 1, 3, padding=1, bias=False)
-        self.laplacian = nn.Conv2d(1, 1, 3, padding=1, bias=False)
-        
-        # Register edge detection kernels
-        sobel_x_kernel = torch.tensor([[[[-1, 0, 1],
-                                        [-2, 0, 2],
-                                        [-1, 0, 1]]]], dtype=torch.float32)
-        sobel_y_kernel = torch.tensor([[[[-1, -2, -1],
-                                        [0,  0,  0],
-                                        [1,  2,  1]]]], dtype=torch.float32)
-        laplacian_kernel = torch.tensor([[[[0, -1, 0],
-                                          [-1, 4, -1],
-                                          [0, -1, 0]]]], dtype=torch.float32)
-        
-        self.register_buffer('sobel_x_kernel', sobel_x_kernel)
-        self.register_buffer('sobel_y_kernel', sobel_y_kernel)
-        self.register_buffer('laplacian_kernel', laplacian_kernel)
-        
-        # Disable gradient computation for edge kernels
-        self.sobel_x.weight.requires_grad = False
-        self.sobel_y.weight.requires_grad = False
-        self.laplacian.weight.requires_grad = False
+class BoundaryLoss(nn.Module):
+    def __init__(self):
+        super(BoundaryLoss, self).__init__()
+        self.sobel = nn.Conv2d(1, 1, 3, padding=1, bias=False)
+        # Register sobel kernel as a buffer so it moves with the model
+        sobel_kernel = torch.tensor([[[[-1, -2, -1],
+                                       [0,  0,  0],
+                                       [1,  2,  1]]]], dtype=torch.float32)
+        self.register_buffer('sobel_kernel', sobel_kernel)
+        self.sobel.weight.requires_grad = False
 
-    def get_multi_scale_edges(self, mask):
-        """Extract multi-scale boundary information"""
-        # Ensure kernels are on the same device as input
-        self.sobel_x.weight.data = self.sobel_x_kernel.to(mask.device)
-        self.sobel_y.weight.data = self.sobel_y_kernel.to(mask.device)
-        self.laplacian.weight.data = self.laplacian_kernel.to(mask.device)
-        
-        if mask.dim() == 3:
-            mask = mask.unsqueeze(1)
-        elif mask.dim() == 4 and mask.size(1) > 1:
-            # Convert multi-class to single channel by taking argmax
-            mask = mask.argmax(dim=1, keepdim=True).float()
-        
-        # Compute gradients
-        grad_x = self.sobel_x(mask)
-        grad_y = self.sobel_y(mask)
-        grad_magnitude = torch.sqrt(grad_x**2 + grad_y**2 + 1e-8)
-        
-        # Laplacian for fine boundaries
-        laplacian = torch.abs(self.laplacian(mask))
-        
-        # Combine multi-scale edge information
-        edges = torch.max(grad_magnitude, laplacian)
-        return (edges > 0.1).float()
-
-    def compute_distance_transform(self, edges):
-        """Compute approximate distance transform for boundary weighting"""
-        # Simple distance approximation using max pooling
-        distances = edges.clone()
-        for _ in range(3):  # 3 iterations for reasonable distance approximation
-            distances = F.max_pool2d(distances, 3, stride=1, padding=1)
-        return distances
+    def get_edges(self, mask):
+        # Ensure sobel weights are on the same device as input
+        self.sobel.weight.data = self.sobel_kernel.to(mask.device)
+        edge = torch.abs(self.sobel(mask.unsqueeze(1)))
+        return (edge > 0.1).float()
 
     def forward(self, inputs, targets):
-        """
-        Advanced boundary loss computation with multi-scale edge detection
-        """
-        # Use softmax probabilities for differentiable edge detection
+        # Use softmax probabilities instead of argmax for differentiability
         inputs_prob = F.softmax(inputs, dim=1)
+        # Get the most probable class as a soft approximation
         inputs_soft = torch.sum(inputs_prob * torch.arange(inputs.size(1), device=inputs.device).view(1, -1, 1, 1).float(), dim=1)
         
-        # Extract multi-scale boundary information
-        inputs_edges = self.get_multi_scale_edges(inputs_soft)
-        targets_edges = self.get_multi_scale_edges(targets.float())
-        
-        # Ensure same spatial dimensions
-        if inputs_edges.shape != targets_edges.shape:
-            targets_edges = F.interpolate(targets_edges, size=inputs_edges.shape[-2:], mode='nearest')
-        
-        # Compute distance-weighted boundary loss
-        target_distances = self.compute_distance_transform(targets_edges)
-        
-        # Ensure boundary weights match edge dimensions
-        if target_distances.shape != inputs_edges.shape:
-            target_distances = F.interpolate(target_distances, size=inputs_edges.shape[-2:], mode='nearest')
-        
-        boundary_weights = 1.0 + self.distance_weight * target_distances
-        
-        # Weighted binary cross-entropy on boundaries
-        boundary_loss = F.binary_cross_entropy(inputs_edges, targets_edges, reduction='none')
-        weighted_boundary_loss = (boundary_loss * boundary_weights).mean()
-        
-        # Additional edge consistency loss for smooth boundaries
-        edge_consistency = F.mse_loss(inputs_edges, targets_edges)
-        
-        return self.boundary_weight * weighted_boundary_loss + 0.1 * edge_consistency
+        inputs_edge = self.get_edges(inputs_soft)
+        targets_edge = self.get_edges(targets.float())
 
+        return F.binary_cross_entropy(inputs_edge, targets_edge)
 
-class AdvancedFocalLoss(nn.Module):
-    """
-    Advanced Focal Loss with class balancing for food segmentation
-    Optimized for 30% mIoU achievement
-    """
-    def __init__(self, alpha=None, gamma=2.0, num_classes=6):
-        super(AdvancedFocalLoss, self).__init__()
-        if alpha is None:
-            # Food segmentation class weights (background, banku, rice, fufu, kenkey, other)
-            alpha = torch.FloatTensor([0.5, 2.0, 2.0, 2.5, 2.0, 1.5])
-        self.alpha = alpha
-        self.gamma = gamma
-        self.num_classes = num_classes
-        
-    def forward(self, inputs, targets):
-        ce_loss = F.cross_entropy(inputs, targets, reduction='none')
-        pt = torch.exp(-ce_loss)
-        
-        # Dynamic alpha balancing
-        if self.alpha is not None:
-            if self.alpha.device != targets.device:
-                self.alpha = self.alpha.to(targets.device)
-            alpha_t = self.alpha.gather(0, targets.view(-1)).view(targets.shape)
-            focal_loss = alpha_t * (1 - pt) ** self.gamma * ce_loss
-        else:
-            focal_loss = (1 - pt) ** self.gamma * ce_loss
-            
-        return focal_loss.mean()
 
 class CombinedLoss(nn.Module):
     """
-    SUPER-ENHANCED Combined Loss for 30% mIoU target with multi-scale supervision
+    Enhanced Combined Loss for 30% mIoU target with multi-scale supervision
     """
-    def __init__(self, alpha=0.6, aux_weight=0.4, adaptive_weights=True):
+    def __init__(self, alpha=0.7, aux_weight=0.4):
         super(CombinedLoss, self).__init__()
         self.alpha = alpha
         self.aux_weight = aux_weight  # Weight for auxiliary losses
-        self.adaptive_weights = adaptive_weights
         
         # Enhanced loss components
         self.dice = DiceLoss()
-        self.boundary = AdvancedBoundaryLoss()
-        self.focal_loss = AdvancedFocalLoss()
+        self.boundary = BoundaryLoss()
         self.ce_loss = nn.CrossEntropyLoss()
         
         # Class-balanced weights for food segmentation (background, banku, rice, fufu, kenkey, other)
