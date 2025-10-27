@@ -1,9 +1,0 @@
-@startuml
-@startuml data_preprocessing
-:Load raw images;
-:Resize images;
-:Normalize pixel values;
-:Augment data (flip, rotate);
-:Save preprocessed images;
-stop
-@enduml

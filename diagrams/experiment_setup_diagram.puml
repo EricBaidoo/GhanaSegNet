@@ -1,9 +1,0 @@
-@startuml
-start
-:Select models (GhanaSegNet, UNet, DeepLabV3+, SegFormer);
-:Define hyperparameters;
-:Train each model;
-:Evaluate performance;
-:Compare results;
-stop
-@enduml
